@@ -327,6 +327,16 @@ a {
   height: var(--icon);
 }
 
+.segmented.is-stacked {
+  display: grid;
+  border-radius: var(--radius-md);
+}
+
+.segmented.is-stacked button {
+  border-radius: var(--radius-sm);
+  height: var(--control-h);
+}
+
 .segmented button[aria-pressed='true'] {
   background: var(--c-surface);
   color: var(--c-text);
@@ -712,6 +722,8 @@ a {
 
 .stage-hint {
   display: grid;
+  align-self: start;
+  margin-top: 12%;
   justify-items: center;
   gap: var(--space-2);
   padding: var(--space-6);

@@ -349,7 +349,7 @@ function Setup() {
           <span className="field-label" id="mode-label">
             Record
           </span>
-          <div className="segmented" role="group" aria-labelledby="mode-label">
+          <div className="segmented is-stacked" role="group" aria-labelledby="mode-label">
             {MODES.map((m) => (
               <button key={m.value} type="button" aria-pressed={mode === m.value} onClick={() => setMode(m.value)}>
                 {m.icon}

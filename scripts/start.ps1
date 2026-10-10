@@ -18,7 +18,7 @@ if (Test-Listening 7310) {
   Write-Host 'API already running on port 7310'
 } else {
   Start-Process -FilePath 'cmd.exe' -WindowStyle Hidden -WorkingDirectory (Join-Path $root 'backend') `
-    -ArgumentList '/c', ".venv\Scripts\python.exe -m uvicorn app.main:app --host 127.0.0.1 --port 7310 > `"$logs\api.log`" 2>&1"
+    -ArgumentList '/c', "set PYTHONUNBUFFERED=1&& .venv\Scripts\python.exe -m uvicorn app.main:app --host 127.0.0.1 --port 7310 > `"$logs\api.log`" 2>&1"
   Write-Host 'Starting API on port 7310'
 }
 
