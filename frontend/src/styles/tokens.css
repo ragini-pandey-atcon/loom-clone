@@ -1,0 +1,120 @@
+/* Design tokens. Components use these names only: no raw colours or pixel values elsewhere. */
+:root {
+  color-scheme: light;
+
+  --font-sans: 'Segoe UI Variable Text', 'Segoe UI', system-ui, -apple-system, 'Helvetica Neue', Arial, sans-serif;
+  --font-display: 'Segoe UI Variable Display', 'Segoe UI', system-ui, sans-serif;
+  --font-mono: 'Cascadia Mono', Consolas, ui-monospace, monospace;
+
+  --text-xs: 0.75rem;
+  --text-sm: 0.8125rem;
+  --text-md: 0.9375rem;
+  --text-lg: 1.125rem;
+  --text-xl: 1.5rem;
+  --text-2xl: 2rem;
+  --text-countdown: 9rem;
+
+  --space-1: 0.25rem;
+  --space-2: 0.5rem;
+  --space-3: 0.75rem;
+  --space-4: 1rem;
+  --space-5: 1.25rem;
+  --space-6: 1.5rem;
+  --space-8: 2rem;
+  --space-10: 2.5rem;
+  --space-12: 3rem;
+
+  --radius-sm: 6px;
+  --radius-md: 10px;
+  --radius-lg: 16px;
+  --radius-pill: 999px;
+
+  --border-width: 1px;
+  --focus-width: 3px;
+  --control-h: 2.25rem;
+  --control-h-lg: 2.75rem;
+  --icon: 1.125rem;
+  --page-max: 72rem;
+  --side-panel: 24rem;
+  --card-min: 15rem;
+  --dialog-w: 26rem;
+  --marker: 0.625rem;
+
+  --duration-fast: 120ms;
+  --duration-base: 200ms;
+  --duration-float: 2400ms;
+  --ease: cubic-bezier(0.2, 0.7, 0.2, 1);
+
+  --c-bg: #f6f7f9;
+  --c-surface: #ffffff;
+  --c-surface-2: #eef1f5;
+  --c-surface-3: #e2e7ee;
+  --c-border: #d9dee6;
+  --c-text: #17202b;
+  --c-text-2: #4d5968;
+  --c-text-3: #6f7b8a;
+  --c-accent: #1f5f8b;
+  --c-accent-hover: #194f75;
+  --c-accent-soft: #e3eef7;
+  --c-on-accent: #ffffff;
+  --c-record: #d93a3f;
+  --c-record-hover: #bf2f34;
+  --c-record-soft: #fbe7e7;
+  --c-success: #23774a;
+  --c-success-soft: #e2f3ea;
+  --c-warning: #8a5a00;
+  --c-warning-soft: #fdf1d8;
+  --c-danger: #b42318;
+  --c-danger-soft: #fdeceb;
+  --c-focus: #4c9be8;
+  --c-player: #0d1117;
+  --c-player-text: #f3f5f8;
+  --c-player-track: rgba(255, 255, 255, 0.28);
+  --c-player-fill: #ffffff;
+  --c-player-scrim: linear-gradient(to top, rgba(0, 0, 0, 0.72), rgba(0, 0, 0, 0));
+  --c-marker-comment: #f5c542;
+  --c-marker-reaction: #ffffff;
+  --c-overlay: rgba(10, 14, 20, 0.55);
+  --avatar-0: #1f5f8b;
+  --avatar-1: #7a4fb5;
+  --avatar-2: #23774a;
+  --avatar-3: #b4532a;
+  --avatar-4: #a0336b;
+  --avatar-5: #3b6e8f;
+  --avatar-6: #6b6b1f;
+  --avatar-7: #9a3412;
+  --shadow-sm: 0 1px 2px rgba(16, 24, 40, 0.06), 0 1px 3px rgba(16, 24, 40, 0.08);
+  --shadow-md: 0 8px 24px rgba(16, 24, 40, 0.12);
+  --shadow-lg: 0 20px 48px rgba(16, 24, 40, 0.22);
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    color-scheme: dark;
+    --c-bg: #0f1419;
+    --c-surface: #161c23;
+    --c-surface-2: #1d252e;
+    --c-surface-3: #27313c;
+    --c-border: #2c3742;
+    --c-text: #e8edf2;
+    --c-text-2: #aab5c1;
+    --c-text-3: #8693a1;
+    --c-accent: #5aa6dc;
+    --c-accent-hover: #74b6e6;
+    --c-accent-soft: #17324a;
+    --c-on-accent: #071521;
+    --c-record: #f0565b;
+    --c-record-hover: #f36f73;
+    --c-record-soft: #3a1c1e;
+    --c-success: #5cc98d;
+    --c-success-soft: #173326;
+    --c-warning: #f1b84a;
+    --c-warning-soft: #3a2c10;
+    --c-danger: #f97066;
+    --c-danger-soft: #3d1a17;
+    --c-overlay: rgba(0, 0, 0, 0.65);
+    --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.4);
+    --shadow-md: 0 8px 24px rgba(0, 0, 0, 0.45);
+    --shadow-lg: 0 20px 48px rgba(0, 0, 0, 0.6);
+  }
+}

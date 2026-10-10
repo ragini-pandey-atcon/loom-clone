@@ -1,0 +1,72 @@
+feature,area,priority,original,clone,notes
+Sign in with Microsoft Entra (ATCON tenant),auth,skip,yes,skip,"local-only, no accounts: one implicit owner, viewers type a display name. Was: Loom has SAML SSO on Enterprise; for us it is the only sign-in"
+Record screen plus mic in the browser,recording,must,yes,no,Loom needs the extension or desktop app; we use getDisplayMedia + MediaRecorder
+Choose source: full screen or window or tab,recording,must,yes,no,the browser's own picker does the choosing
+Camera bubble composited into the recording,recording,must,yes,no,hard part 1: canvas compositing of two streams
+Camera and mic pickers with live audio level meter,recording,must,yes,no,S05
+Camera or mic permission denied handled with clear guidance,recording,must,yes,no,S05 state P
+Countdown before recording,recording,must,yes,no,setting to turn it off is a should
+Pause and resume,recording,must,yes,no,alt+shift+P in Loom
+Restart and delete the take with confirmation,recording,must,yes,no,restart keeps device choices
+Recording timer,recording,must,yes,no,
+"Browser ""Stop sharing"" ends the recording cleanly",recording,must,yes,no,edge case of F01
+Upload while recording (chunked and resumable),processing,must,yes,no,hard part 2: the instant link depends on it
+Server-side processing to a seekable streamable format,processing,must,yes,no,WebM from MediaRecorder has no duration or cues
+Share link copied to clipboard on stop,sharing,must,yes,no,the core-loop moment
+Video page with player (play pause seek speed fullscreen),viewing,must,yes,no,S10 and S12
+Rename a video,library,must,yes,no,
+Access: ATCON workspace or specific people,sharing,skip,yes,skip,"local-only, no accounts: access levels and sharing with specific people need identities. Was: default for an internal tool is workspace"
+Timestamped comments with replies,collaboration,must,yes,no,markers on the timeline
+Emoji reactions on the timeline,collaboration,must,yes,no,player shows the last 50
+View count and viewer list (5 s / 75 % / ended rule),insights,must,yes,no,owner's own views excluded; hard part 4
+Library of my videos with search by title,library,must,yes,no,S03
+Archive and permanently delete with confirmation,library,must,yes,no,delete is irreversible in Loom too
+Folders and move video to folder,library,should,yes,no,nesting is a guess
+Camera bubble drag snap size and shape,recording,should,yes,no,Loom: 5 sizes and 4 shapes
+Floating camera bubble visible over other apps,recording,should,yes,no,Document Picture-in-Picture; Chrome and Edge only
+Camera-only mode,recording,should,yes,no,
+System or tab audio capture,recording,should,yes,no,Chrome supports tab audio and on Windows system audio
+Browser noise suppression on the mic,recording,should,yes,no,cheap via getUserMedia constraints
+Email notification to the owner on new comment,notifications,skip,yes,skip,"local-only, no accounts: no email. Was: per-video toggle in S14"
+Notifications page (comments replies shares),notifications,should,yes,no,S16
+@mentions in comments,collaboration,should,yes,no,mentioned person is notified
+Per-video settings: comments and reactions on or off,settings,should,yes,no,S14
+Transcript with click-to-seek and search,transcript,should,yes,no,on all Loom plans; EU-region speech-to-text (hard part 5)
+Closed captions from the transcript,transcript,should,yes,no,
+Search inside transcripts from the library,library,should,yes,no,F09
+Download as MP4,viewing,should,yes,no,per-video toggle
+Shared with me list,library,skip,yes,skip,"local-only, no accounts: nobody shares to a named person. Was: S17"
+Processing and failed states on the video page,viewing,should,yes,no,
+Share at a timestamp,sharing,could,yes,no,start at mm:ss checkbox
+Embed code for Confluence and SharePoint,sharing,skip,yes,skip,"local-only, no accounts: nothing outside this machine can reach the player. Was: S20; restricted videos show a message"
+Anyone-with-link public access,sharing,skip,yes,skip,"local-only, no accounts: access levels; the server binds to 127.0.0.1. Was: needs a policy decision for an internal tool"
+Password-protected video,sharing,skip,yes,skip,"local-only, no accounts: access levels"
+Share via email with a message,sharing,skip,yes,skip,"local-only, no accounts: no email"
+Watch later,viewing,could,yes,no,S19
+Theater mode,viewing,could,yes,no,
+Viewer quality selector (adaptive renditions),viewing,could,yes,no,Loom ladder 360p to 2160p
+Recommended playback speed per video,settings,could,yes,no,
+Show view count to viewers toggle,settings,could,yes,no,
+Animated GIF thumbnail,library,could,yes,no,
+Custom thumbnail,library,could,yes,no,Business plan in Loom
+Upload an existing video file,library,could,yes,no,S22
+Duplicate a video,library,could,yes,no,
+Tags,library,could,yes,no,
+Home feed of recent videos in ATCON,discovery,could,yes,no,only ATCON's own videos
+Follow a video for comment notifications,notifications,could,yes,no,
+Record a video reply,collaboration,could,yes,no,
+Trim a recording,editing,could,yes,no,Business plan in Loom
+Drawing tool and click highlight while recording,recording,could,yes,no,Business plan in Loom
+Loom AI (titles summaries chapters tasks filler removal),ai,could,yes,skip,out of the agreed slice; possible later in ATCON's Azure
+Desktop app and Chrome extension,platform,could,yes,skip,out of the agreed slice (web only)
+Mobile apps,platform,could,yes,skip,out of scope
+Spaces and all-company space,teams,could,yes,skip,teams slice not chosen
+Meeting recorder and notetaker,meetings,could,yes,skip,out of scope
+Jira Confluence Slack Salesforce Gmail integrations,integrations,could,yes,skip,their partner network; we embed by link instead
+Atlassian search indexing,integrations,could,yes,skip,their platform
+Plans billing and free-tier limits,billing,could,yes,skip,internal tool: no tiers
+SCIM provisioning and admin activity log,admin,could,yes,skip,Entra covers identity; teams slice not chosen
+Stitch videos,editing,could,yes,skip,low value for the core loop
+Virtual backgrounds and camera filters,recording,could,yes,skip,heavy in-browser ML for little value
+4K recording,recording,could,yes,skip,browser recording tops out around 1080p in Loom too
+Community Looms and Loom's user base,discovery,could,yes,skip,their network and content
