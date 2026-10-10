@@ -60,7 +60,7 @@ Stop ─► copy link (inside the click, so the clipboard is allowed) ─► dra
 
 ## Schema
 
-Tables: 6. Access rules: none to enforce (one owner, local only, loopback binding). The data layer still
+Tables: 5. Access rules: none to enforce (one owner, local only, loopback binding). The data layer still
 checks that a comment delete comes from its author or the owner device, so viewers cannot remove each
 other's comments by accident. SQLite has no `uuid` or `timestamptz`: ids are text, times are ISO 8601 UTC
 text (`2026-10-10T19:04:05.123Z`), which sorts correctly as text.
