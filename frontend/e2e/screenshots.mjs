@@ -1,3 +1,5 @@
+// Screenshots for replica-diff. Run from frontend/ with both servers up: node e2e/screenshots.mjs
+// Records its own demo videos with fake devices and deletes them at the end.
 import { chromium } from '@playwright/test';
 const out = '../replica/clone-screens';
 const browser = await chromium.launch({ args: ['--use-fake-ui-for-media-stream','--use-fake-device-for-media-stream','--auto-select-desktop-capture-source=Entire screen'] });
