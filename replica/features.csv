@@ -5,7 +5,7 @@ Choose source: full screen or window or tab,recording,must,yes,yes,the browser's
 Camera bubble composited into the recording,recording,must,yes,yes,MediaStreamTrackProcessor/Generator; camera frames drive the output so a hidden tab keeps its frame rate
 Camera and mic pickers with live audio level meter,recording,must,yes,yes,S05
 Camera or mic permission denied handled with clear guidance,recording,must,yes,yes,"blocked, busy (in use by another app) and missing each have their own message"
-Countdown before recording,recording,must,yes,yes,always on; the setting to turn it off is a should
+Countdown before recording,recording,must,yes,yes,on by default; can be turned off
 Pause and resume,recording,must,yes,yes,Alt+Shift+P works while the recorder tab has focus
 Restart and delete the take with confirmation,recording,must,yes,yes,restart keeps device choices
 Recording timer,recording,must,yes,yes,also shown in the tab title
@@ -22,7 +22,16 @@ View count and viewer list (5 s / 75 % / ended rule),insights,must,yes,yes,one v
 Library of my videos with search by title,library,must,yes,yes,S03
 Archive and permanently delete with confirmation,library,must,yes,yes,delete is irreversible in Loom too
 Folders and move video to folder,library,should,yes,no,nesting is a guess
-Camera bubble drag snap size and shape,recording,should,yes,partial,"4 corners and 3 sizes, changeable mid-take; circle only, no drag"
+Camera bubble: drag anywhere and snap to sides and corners,recording,must,yes,yes,"setup and mid-take; keyboard arrows too; position remembered (2026-11-12)"
+Camera bubble: five sizes on a slider shown on hover,recording,must,yes,yes,also in the side panel and the live camera panel; + and - keys
+Camera bubble: four shapes (circle rounded square landscape portrait),recording,must,yes,yes,changeable mid-take
+Double-click the bubble for full camera,recording,should,yes,yes,and back; Enter does the same
+Flip camera (mirror on or off),recording,should,yes,yes,mirrored by default like Loom
+Camera filters,recording,could,yes,yes,"six of our own (None, Vivid, Mono, Warm, Cool, Bright); Loom has seven under other names"
+Turn the camera off and on mid-take,recording,should,yes,yes,
+Recorder settings carry over to the next recording,settings,should,yes,yes,localStorage in this browser
+Show or hide the recording time,settings,could,yes,yes,
+Countdown on or off,settings,should,yes,yes,
 Floating camera bubble visible over other apps,recording,should,yes,no,Document Picture-in-Picture; Chrome and Edge only
 Camera-only mode,recording,should,yes,yes,
 System or tab audio capture,recording,should,yes,yes,mixed with the mic when both are shared
@@ -56,7 +65,7 @@ Home feed of recent videos in ATCON,discovery,could,yes,no,only ATCON's own vide
 Follow a video for comment notifications,notifications,could,yes,no,
 Record a video reply,collaboration,could,yes,no,
 Trim a recording,editing,could,yes,no,Business plan in Loom
-Drawing tool and click highlight while recording,recording,could,yes,no,Business plan in Loom
+Drawing tool and click highlight while recording,recording,could,yes,skip,a web page cannot draw over other apps; Loom needs its desktop app or extension
 Loom AI (titles summaries chapters tasks filler removal),ai,could,yes,skip,out of the agreed slice; possible later in ATCON's Azure
 Desktop app and Chrome extension,platform,could,yes,skip,out of the agreed slice (web only)
 Mobile apps,platform,could,yes,skip,out of scope
@@ -68,5 +77,5 @@ Plans billing and free-tier limits,billing,could,yes,skip,internal tool: no tier
 SCIM provisioning and admin activity log,admin,could,yes,skip,Entra covers identity; teams slice not chosen
 Stitch videos,editing,could,yes,skip,low value for the core loop
 Virtual backgrounds and camera filters,recording,could,yes,skip,heavy in-browser ML for little value
-4K recording,recording,could,yes,skip,browser recording tops out around 1080p in Loom too
+Video quality choice: 720p 1080p 1440p 4K,recording,must,yes,yes,"capped by what is shared; bitrate scales with size (8 Mbps at 1080p, was 2.5); VP9; contentHint detail. Loom: 1080p in the extension, 4K in the desktop app"
 Community Looms and Loom's user base,discovery,could,yes,skip,their network and content

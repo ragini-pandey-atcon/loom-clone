@@ -54,3 +54,27 @@ Must-haves: 20 of 20. Should-haves: 6 of 14 done or partial (see `features.csv`)
 
 - `/replica-test` for a wider pass, then the should-haves in this order: folders, Document
   Picture-in-Picture bubble with controls, WebM download, countdown setting.
+
+## 2026-11-12: recorder refresh
+
+Reported in use: the bubble could not be customised, its size could not be edited, and screen
+recordings were blurry with no quality choice. Recon refreshed from public help pages (recon.md,
+"Recorder refresh"), then built:
+
+- Bubble geometry in `recorder/bubble.ts`, shared by the compositor and the page, so the bubble you
+  drag is exactly where it is recorded. Position is stored as a share of the free space (px, py),
+  which stays valid for every shape, size and frame and can never leave the frame.
+- Four shapes, five sizes, drag with snap, keyboard moves, double-click for full camera, flip,
+  filters, camera off and on, all live mid-take (the compositor reads the options every frame).
+- Quality 720p to 4K. The old output was capped at 1080p and 2.5 Mbps; it is now the chosen size
+  (never upscaled) at about 0.13 bits per pixel: 8.1 Mbps at 1080p, 3.6 at 720p (checked on the
+  real MediaRecorder). Screen track and output carry `contentHint = 'detail'`.
+- Settings carry over in localStorage (`recorder/preferences.ts`), validated field by field.
+
+Verified: 24 unit tests (geometry, quality, preferences, WebM repair), typecheck, and 8 e2e tests
+including two new ones (bubble shape, size, drag-to-snap, keyboard and carry-over; a 720p take with
+no countdown whose file is 720p after live shape, size, full camera and camera off/on changes).
+Recorded frames were checked by eye: a change made mid-take shows in the file.
+Not verified here: 1440p and 4K output, because the fake screen in headless Chromium is 1080p.
+
+Next: floating bubble and controls over other apps (Document Picture-in-Picture).

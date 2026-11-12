@@ -737,52 +737,211 @@ a {
   height: var(--space-10);
 }
 
-.bubble-preview {
+/* The camera bubble: a live camera preview in setup, a drag handle over the recording. */
+.bubble-layer {
   position: absolute;
-  width: 22%;
-  aspect-ratio: 1;
-  border-radius: 50%;
+  inset: 0;
+}
+
+.bubble {
+  position: absolute;
+  touch-action: none;
+  cursor: grab;
+  transition:
+    left var(--duration-base) var(--ease),
+    top var(--duration-base) var(--ease),
+    width var(--duration-base) var(--ease),
+    height var(--duration-base) var(--ease),
+    border-radius var(--duration-base) var(--ease);
+}
+
+.bubble.is-dragging {
+  cursor: grabbing;
+  transition: none;
+}
+
+.bubble.has-camera {
+  box-shadow:
+    0 0 0 3px rgba(255, 255, 255, 0.9),
+    var(--shadow-lg);
+}
+
+.bubble.has-camera .bubble-video {
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
   overflow: hidden;
-  border: 3px solid rgba(255, 255, 255, 0.9);
-  box-shadow: var(--shadow-lg);
 }
 
-.bubble-preview video {
-  object-fit: cover;
-  transform: scaleX(-1);
+/* While recording the composite already shows the camera; the handle only shows on hover. */
+.bubble.is-handle {
+  outline: 2px dashed transparent;
+  outline-offset: 2px;
 }
 
-.bubble-preview.size-small {
-  width: 16%;
+.bubble.is-handle:hover,
+.bubble.is-handle.is-dragging,
+.bubble.is-handle:focus-visible {
+  outline-color: rgba(255, 255, 255, 0.85);
 }
 
-.bubble-preview.size-large {
-  width: 30%;
+.bubble.is-full {
+  cursor: zoom-out;
 }
 
-.bubble-preview.corner-bottom-left {
-  left: 3%;
-  bottom: 5%;
+.bubble:focus-visible {
+  outline: 3px solid var(--c-accent);
+  outline-offset: 3px;
 }
 
-.bubble-preview.corner-bottom-right {
-  right: 3%;
-  bottom: 5%;
-}
-
-.bubble-preview.corner-top-left {
-  left: 3%;
-  top: 5%;
-}
-
-.bubble-preview.corner-top-right {
-  right: 3%;
-  top: 5%;
-}
-
+.bubble-video video,
 .camera-full video {
+  width: 100%;
+  height: 100%;
   object-fit: cover;
+}
+
+.bubble-video[data-mirror='true'] video {
   transform: scaleX(-1);
+}
+
+.camera-full {
+  position: absolute;
+  inset: 0;
+}
+
+.bubble-tools {
+  position: absolute;
+  left: 50%;
+  bottom: calc(100% + var(--space-2));
+  display: flex;
+  align-items: center;
+  padding: var(--space-1) var(--space-3);
+  border-radius: var(--radius-pill);
+  background: rgba(13, 17, 23, 0.82);
+  box-shadow: var(--shadow-lg);
+  transform: translateX(-50%);
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity var(--duration-base) var(--ease);
+  cursor: default;
+}
+
+.bubble-tools.is-below {
+  bottom: auto;
+  top: calc(100% + var(--space-2));
+}
+
+.bubble:hover .bubble-tools,
+.bubble:focus-within .bubble-tools {
+  opacity: 1;
+  pointer-events: auto;
+}
+
+.bubble.is-dragging .bubble-tools {
+  opacity: 0;
+  pointer-events: none;
+}
+
+.range {
+  width: 100%;
+  accent-color: var(--c-accent);
+  cursor: pointer;
+}
+
+.range.is-compact {
+  width: 7.5rem;
+  accent-color: #fff;
+}
+
+.option-group {
+  display: grid;
+  gap: var(--space-3);
+  margin: 0;
+  padding: var(--space-4);
+  border: var(--border-width) solid var(--c-border);
+  border-radius: var(--radius-md);
+}
+
+.option-group legend {
+  padding: 0 var(--space-2);
+  font-size: var(--text-sm);
+  font-weight: 650;
+  color: var(--c-text);
+}
+
+.camera-controls {
+  display: grid;
+  gap: var(--space-3);
+}
+
+.camera-controls.is-live {
+  grid-template-columns: repeat(auto-fit, minmax(11rem, 1fr));
+  align-items: end;
+  gap: var(--space-3) var(--space-6);
+}
+
+.camera-controls.is-live .toggle {
+  justify-content: flex-start;
+  gap: var(--space-3);
+}
+
+.camera-controls.is-live .toggle input {
+  order: -1;
+}
+
+.live-camera {
+  margin-top: var(--space-4);
+  padding: var(--space-4) var(--space-6);
+}
+
+.toggle-help {
+  display: block;
+  font-weight: 400;
+}
+
+.shape-picker button {
+  padding: 0 var(--space-3);
+}
+
+.shape-glyph {
+  display: inline-block;
+  width: 1.15rem;
+  height: 1.15rem;
+  border: 2px solid currentColor;
+}
+
+.shape-glyph.shape-circle {
+  border-radius: 50%;
+}
+
+.shape-glyph.shape-squircle {
+  border-radius: 32%;
+}
+
+.shape-glyph.shape-landscape {
+  width: 1.45rem;
+  height: 0.85rem;
+  border-radius: 3px;
+}
+
+.shape-glyph.shape-portrait {
+  width: 0.85rem;
+  height: 1.35rem;
+  border-radius: 3px;
+}
+
+.chip {
+  display: inline-flex;
+  align-items: center;
+  padding: 0 var(--space-3);
+  min-height: var(--space-6);
+  border-radius: var(--radius-pill);
+  background: var(--c-surface-2);
+  color: var(--c-text-2);
+  font-size: var(--text-sm);
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
 }
 
 .countdown {

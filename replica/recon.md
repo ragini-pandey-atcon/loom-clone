@@ -234,6 +234,30 @@ WatchLater   user_id, video_id, created_at
 
 Relationships: User 1-n Video, User 1-n Folder, Folder 1-n Video, Video 1-n VideoShare, Video 1-n Comment, Comment 1-n Comment (replies), Video 1-n Reaction, Video 1-n View, Video 1-1 Transcript, User n-n Video via Follow and WatchLater.
 
+
+## Recorder refresh (2026-11-12)
+
+The first build shipped a fixed circle in four corners at three sizes, and a 1080p, 2.5 Mbps output. Three things were reported in use: the bubble cannot be customised, its size cannot be edited, and the screen recording is blurry with no quality choice. Re-read from public sources only (same ground rules as above):
+
+| # | source | URL | what it adds |
+| --- | --- | --- | --- |
+| 25 | capture modes (re-read) | https://support.atlassian.com/loom/docs/use-looms-different-capture-modes/ | bubble shapes: squircle, circle, landscape rectangle, portrait rectangle; five sizes on a slider shown when hovering the bubble; drag anywhere, snaps to corners and sides, position remembered; double-click while recording fills the screen with the camera; camera filters (seven, under Camera settings); turn the camera off mid-take |
+| 26 | manage video recording quality | https://support.atlassian.com/loom/docs/manage-your-video-recording-quality/ | Chrome extension up to 1080p, desktop app up to 4K; the toolbar offers 720p, 1080p, 1440p, 4K; quality is capped by the monitor's resolution |
+| 27 | configure recording settings (Chrome extension) | https://support.atlassian.com/loom/docs/configure-your-recording-settings-chrome-extension | settings: recording countdown, recording controls shown or hidden, flip camera (removes the mirror effect), show recording time; "Defaults: settings carry over from your previous recording"; effects, blur and auto lighting |
+| 28 | encoding settings (source 9) | https://support.atlassian.com/loom/docs/loom-video-encoding-settings-by-platform/ | about 30 fps on average; no frame-rate choice |
+
+### What the clone does now (S05, S08)
+
+- **CameraBubble**: four shapes (rounded square, circle, landscape, portrait), five sizes on a slider shown on hover and in the side panel, drag anywhere on the preview with a snap to the corners and sides, double-click to fill the frame with the camera and back, mirror on by default with a Flip camera setting, filters (the names are ours), camera off and on mid-take. Applies in setup and live while recording, because the compositor reads the options on every frame.
+- **Video quality**: 720p, 1080p (default), 1440p and 4K. The screen is captured at the chosen size, never upscaled, and the bitrate scales with it (720p 4 Mbps up to 4K 24 Mbps). Text stays sharp because the screen track is flagged `contentHint = 'detail'` and the downscale uses high-quality smoothing. Camera only is captured at up to 1080p, like Loom's desktop app.
+- **Settings that carry over**: shape, size, position, mirror, filter, quality, countdown on or off, show timer. Kept in localStorage for this browser.
+
+### Still missing in the recorder, and why
+
+- Floating bubble and controls over other apps: possible with Document Picture-in-Picture in Chrome and Edge, but the floating window is itself captured when the whole screen is shared. Next in line.
+- Drawing tool and click highlighting: Loom draws over other apps from its desktop app or injects into tabs from its extension. A web page can do neither; skip.
+- Effects, blur, auto lighting, virtual backgrounds and avatars: in-browser ML for little value; skip (unchanged).
+
 ## Feature matrix
 
 See `features.csv`. Must: 22, should: 16, could: 20, skip: 13.

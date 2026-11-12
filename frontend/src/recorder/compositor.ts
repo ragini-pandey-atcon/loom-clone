@@ -1,5 +1,5 @@
 /**
- * Draws the screen and a round camera bubble into one video track.
+ * Draws the screen and the camera bubble into one video track.
  *
  * Frames are pulled with MediaStreamTrackProcessor readers and pushed into a
  * MediaStreamTrackGenerator. Nothing here uses requestAnimationFrame or timers: both stop or slow
@@ -7,20 +7,12 @@
  *
  * The camera drives the output (a steady ~30 fps) because screen capture only delivers a frame
  * when something on screen changes. Without a camera, the screen drives it.
+ *
+ * The bubble options object is read on every frame, so the recorder page changes shape, size,
+ * position, mirror, filter and full camera mid-take by mutating it.
  */
-
-export type BubbleCorner = 'bottom-left' | 'bottom-right' | 'top-left' | 'top-right';
-export type BubbleSize = 'small' | 'medium' | 'large';
-
-export interface BubbleOptions {
-  corner: BubbleCorner;
-  size: BubbleSize;
-  visible: boolean;
-}
-
-const BUBBLE_FRACTION: Record<BubbleSize, number> = { small: 0.16, medium: 0.22, large: 0.3 };
-const MAX_W = 1920;
-const MAX_H = 1080;
+import { type BubbleOptions, bubbleRect, cornerRadius, filterCss } from './bubble';
+import { fitToQuality, type Quality } from './quality';
 
 export interface Composite {
   track: MediaStreamTrack;
@@ -30,12 +22,6 @@ export interface Composite {
   /** A JPEG of the current output, about 640 px wide, for the library card. */
   snapshot(): Promise<Blob | null>;
   stop(): void;
-}
-
-function fitWithin(w: number, h: number): [number, number] {
-  const scale = Math.min(1, MAX_W / w, MAX_H / h);
-  const even = (n: number) => Math.max(2, Math.round((n * scale) / 2) * 2);
-  return [even(w), even(h)];
 }
 
 async function firstFrame(reader: ReadableStreamDefaultReader<VideoFrame>): Promise<VideoFrame> {
@@ -48,8 +34,12 @@ export async function createComposite(
   screenTrack: MediaStreamTrack | null,
   cameraTrack: MediaStreamTrack | null,
   bubble: BubbleOptions,
+  quality: Quality,
 ): Promise<Composite> {
   if (!screenTrack && !cameraTrack) throw new Error('Nothing to record');
+
+  // Ask the capture pipeline to keep resolution over frame rate: text on screen stays legible.
+  if (screenTrack) screenTrack.contentHint = 'detail';
 
   const screenReader = screenTrack ? new MediaStreamTrackProcessor({ track: screenTrack }).readable.getReader() : null;
   const cameraReader = cameraTrack ? new MediaStreamTrackProcessor({ track: cameraTrack }).readable.getReader() : null;
@@ -58,24 +48,36 @@ export async function createComposite(
   let latestCamera: VideoFrame | null = cameraReader ? await firstFrame(cameraReader) : null;
 
   const base = latestScreen ?? latestCamera!;
-  const [width, height] = fitWithin(base.displayWidth, base.displayHeight);
+  const [width, height] = fitToQuality(base.displayWidth, base.displayHeight, quality);
   const canvas = new OffscreenCanvas(width, height);
   const ctx = canvas.getContext('2d', { alpha: false })!;
+  ctx.imageSmoothingEnabled = true;
+  ctx.imageSmoothingQuality = 'high';
   const generator = new MediaStreamTrackGenerator({ kind: 'video' });
+  generator.contentHint = screenReader ? 'detail' : 'motion';
   const writer = generator.writable.getWriter();
 
   let stopped = false;
   let driver: 'camera' | 'screen' = cameraReader ? 'camera' : 'screen';
   const options = bubble;
 
-  function drawCover(frame: VideoFrame, dx: number, dy: number, dw: number, dh: number) {
-    // Center-crop the frame to the destination's aspect ratio.
+  /** Center-crops the camera to the destination's aspect ratio, mirrored and filtered as set. */
+  function drawCamera(frame: VideoFrame, dx: number, dy: number, dw: number, dh: number) {
     const sw = frame.displayWidth;
     const sh = frame.displayHeight;
     const scale = Math.max(dw / sw, dh / sh);
     const cw = dw / scale;
     const ch = dh / scale;
-    ctx.drawImage(frame, (sw - cw) / 2, (sh - ch) / 2, cw, ch, dx, dy, dw, dh);
+    ctx.save();
+    ctx.filter = filterCss(options.filter);
+    if (options.mirror) {
+      ctx.translate(dx + dw, dy);
+      ctx.scale(-1, 1);
+      ctx.drawImage(frame, (sw - cw) / 2, (sh - ch) / 2, cw, ch, 0, 0, dw, dh);
+    } else {
+      ctx.drawImage(frame, (sw - cw) / 2, (sh - ch) / 2, cw, ch, dx, dy, dw, dh);
+    }
+    ctx.restore();
   }
 
   function drawContain(frame: VideoFrame) {
@@ -85,30 +87,40 @@ export async function createComposite(
     ctx.drawImage(frame, (width - w) / 2, (height - h) / 2, w, h);
   }
 
+  function drawBubble(camera: VideoFrame) {
+    const r = bubbleRect(options, width, height);
+    const radius = cornerRadius(options.shape, r);
+    const ring = Math.max(2, Math.round(Math.min(width, height) / 360));
+    ctx.save();
+    ctx.shadowColor = 'rgba(0,0,0,0.35)';
+    ctx.shadowBlur = ring * 6;
+    ctx.beginPath();
+    ctx.roundRect(r.x, r.y, r.w, r.h, radius);
+    ctx.fillStyle = '#000';
+    ctx.fill();
+    ctx.restore();
+    ctx.save();
+    ctx.beginPath();
+    ctx.roundRect(r.x, r.y, r.w, r.h, radius);
+    ctx.clip();
+    drawCamera(camera, r.x, r.y, r.w, r.h);
+    ctx.restore();
+    ctx.beginPath();
+    ctx.roundRect(r.x + ring / 2, r.y + ring / 2, r.w - ring, r.h - ring, Math.max(0, radius - ring / 2));
+    ctx.lineWidth = ring;
+    ctx.strokeStyle = 'rgba(255,255,255,0.9)';
+    ctx.stroke();
+  }
+
   function render() {
     ctx.fillStyle = '#000';
     ctx.fillRect(0, 0, width, height);
-    if (latestScreen) {
+    const cameraShown = latestCamera && options.visible;
+    if (latestScreen && !(cameraShown && options.fullCamera)) {
       drawContain(latestScreen);
-      if (latestCamera && options.visible) {
-        const d = Math.round(Math.min(width, height) * BUBBLE_FRACTION[options.size]);
-        const margin = Math.round(Math.min(width, height) * 0.03);
-        const x = options.corner.endsWith('left') ? margin : width - margin - d;
-        const y = options.corner.startsWith('top') ? margin : height - margin - d;
-        ctx.save();
-        ctx.beginPath();
-        ctx.arc(x + d / 2, y + d / 2, d / 2, 0, Math.PI * 2);
-        ctx.clip();
-        drawCover(latestCamera, x, y, d, d);
-        ctx.restore();
-        ctx.beginPath();
-        ctx.arc(x + d / 2, y + d / 2, d / 2 - 1.5, 0, Math.PI * 2);
-        ctx.lineWidth = 3;
-        ctx.strokeStyle = 'rgba(255,255,255,0.9)';
-        ctx.stroke();
-      }
-    } else if (latestCamera) {
-      drawCover(latestCamera, 0, 0, width, height);
+      if (cameraShown) drawBubble(latestCamera!);
+    } else if (latestCamera && (cameraShown || !latestScreen)) {
+      drawCamera(latestCamera, 0, 0, width, height);
     }
     // Drop a frame rather than queue it when the encoder is behind.
     if (writer.desiredSize !== null && writer.desiredSize <= 0) return;
@@ -159,7 +171,9 @@ export async function createComposite(
       const w = Math.min(640, width);
       const h = Math.round((height * w) / width);
       const small = new OffscreenCanvas(w, h);
-      small.getContext('2d')!.drawImage(canvas, 0, 0, w, h);
+      const sctx = small.getContext('2d')!;
+      sctx.imageSmoothingQuality = 'high';
+      sctx.drawImage(canvas, 0, 0, w, h);
       try {
         return await small.convertToBlob({ type: 'image/jpeg', quality: 0.82 });
       } catch {

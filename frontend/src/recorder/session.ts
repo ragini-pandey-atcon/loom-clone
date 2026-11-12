@@ -8,7 +8,9 @@ import { useSyncExternalStore } from 'react';
 
 import { api, ApiError, type SourceMode } from '../api/client';
 import { fixWebm } from '../lib/webmFix';
-import { type BubbleOptions, type Composite, createComposite } from './compositor';
+import type { BubbleOptions } from './bubble';
+import { type Composite, createComposite } from './compositor';
+import { bitrateFor, type Quality } from './quality';
 import { pickMimeType } from './support';
 import { ChunkUploader, type UploadProgress } from './uploader';
 
@@ -81,6 +83,8 @@ export class RecordingSession {
     private readonly streams: Streams,
     readonly mode: SourceMode,
     readonly bubble: BubbleOptions,
+    readonly quality: Quality,
+    private readonly useCountdown: boolean,
   ) {
     // The browser's own "Stop sharing" bar ends the screen track. Finish the take cleanly.
     streams.display?.getVideoTracks()[0]?.addEventListener('ended', () => {
@@ -108,7 +112,7 @@ export class RecordingSession {
   async prepare(): Promise<void> {
     const screen = this.streams.display?.getVideoTracks()[0] ?? null;
     const camera = this.streams.camera?.getVideoTracks()[0] ?? null;
-    this.composite = await createComposite(screen, camera, this.bubble);
+    this.composite = await createComposite(screen, camera, this.bubble, this.quality);
 
     const audio = this.mixAudio();
     this.recordStream = new MediaStream([this.composite.track, ...(audio ? [audio] : [])]);
@@ -128,8 +132,19 @@ export class RecordingSession {
     return out.stream.getAudioTracks()[0];
   }
 
-  /** 3, 2, 1. Resolves false when the countdown was cancelled. */
+  /** A camera was captured for this session (it may be turned off in the recording mid-take). */
+  get hasCamera(): boolean {
+    return (this.streams.camera?.getVideoTracks().length ?? 0) > 0;
+  }
+
+  /** The size actually being recorded: the chosen quality, or smaller when the source is smaller. */
+  get outputSize(): { width: number; height: number } | null {
+    return this.composite ? { width: this.composite.width, height: this.composite.height } : null;
+  }
+
+  /** 3, 2, 1. Resolves false when the countdown was cancelled. Instant when the setting is off. */
   countdown(): Promise<boolean> {
+    if (!this.useCountdown) return Promise.resolve(true);
     this.set({ phase: 'countdown', countdown: COUNTDOWN_SECONDS });
     return new Promise((resolve) => {
       this.countdownDone = () => resolve(false);
@@ -158,7 +173,7 @@ export class RecordingSession {
     const uploader = new ChunkUploader(video.id, (progress) => this.set({ progress }));
     const recorder = new MediaRecorder(this.recordStream, {
       mimeType: this.mimeType,
-      videoBitsPerSecond: 2_500_000,
+      videoBitsPerSecond: bitrateFor(this.composite.width, this.composite.height),
       audioBitsPerSecond: 128_000,
       // A keyframe at least every 2 s keeps seeking precise. Ignored where unsupported.
       videoKeyFrameIntervalDuration: 2000,

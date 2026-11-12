@@ -14,11 +14,14 @@ import {
   IconStop,
   IconTrash,
 } from '../components/Icons';
+import { BubbleLayer, CameraControls, CameraFill, useLiveBubble } from '../components/CameraBubble';
 import { LiveVideo } from '../components/LiveVideo';
 import { ConfirmDialog, copyText, toast } from '../components/ui';
 import { formatClock } from '../lib/format';
 import { claimOwnerDevice } from '../lib/identity';
-import type { BubbleCorner, BubbleOptions, BubbleSize } from '../recorder/compositor';
+import type { BubbleOptions } from '../recorder/bubble';
+import { loadPreferences, type RecorderPreferences, savePreferences } from '../recorder/preferences';
+import { QUALITIES, type Quality, screenQuality } from '../recorder/quality';
 import { RecordingSession, setActiveSession, useActiveSession, useSessionState } from '../recorder/session';
 import { recordingSupport } from '../recorder/support';
 
@@ -30,18 +33,8 @@ const MODES: { value: SourceMode; label: string; icon: React.ReactNode }[] = [
   { value: 'camera', label: 'Camera only', icon: <IconCamera /> },
 ];
 
-const CORNERS: { value: BubbleCorner; label: string }[] = [
-  { value: 'bottom-left', label: 'Bottom left' },
-  { value: 'bottom-right', label: 'Bottom right' },
-  { value: 'top-left', label: 'Top left' },
-  { value: 'top-right', label: 'Top right' },
-];
-
-const SIZES: { value: BubbleSize; label: string }[] = [
-  { value: 'small', label: 'Small' },
-  { value: 'medium', label: 'Medium' },
-  { value: 'large', label: 'Large' },
-];
+/** Setup has no screen yet: the stage stands in for a 1080p screen, and positions carry over. */
+const SETUP_FRAME = { width: 1920, height: 1080 };
 
 function problemOf(error: unknown): DeviceProblem {
   const name = (error as DOMException)?.name;
@@ -156,8 +149,15 @@ function Setup() {
   const [micProblem, setMicProblem] = useState<DeviceProblem>(null);
   const [cameraAttempt, setCameraAttempt] = useState(0);
   const [micAttempt, setMicAttempt] = useState(0);
-  const [bubble, setBubble] = useState<BubbleOptions>({ corner: 'bottom-left', size: 'medium', visible: true });
+  const [prefs, setPrefs] = useState<RecorderPreferences>(loadPreferences);
+  const bubble = prefs.bubble;
   const [pickerMessage, setPickerMessage] = useState<string | null>(null);
+
+  // Settings carry over to the next recording (Loom: "Defaults").
+  useEffect(() => savePreferences(prefs), [prefs]);
+  const updatePrefs = (patch: Partial<RecorderPreferences>) => setPrefs((p) => ({ ...p, ...patch }));
+  const updateBubble = (patch: Partial<BubbleOptions>) => setPrefs((p) => ({ ...p, bubble: { ...p.bubble, ...patch } }));
+  const fitsScreen = screenQuality();
   const [starting, setStarting] = useState(false);
   const handedOver = useRef(false);
 
@@ -187,8 +187,9 @@ function Setup() {
       .getUserMedia({
         video: {
           deviceId: cameraId === 'default' ? undefined : { exact: cameraId },
-          width: { ideal: 1280 },
-          height: { ideal: 720 },
+          // Full HD, so a large bubble, full camera and camera-only recordings stay sharp.
+          width: { ideal: 1920 },
+          height: { ideal: 1080 },
           frameRate: { ideal: 30 },
         },
       })
@@ -257,8 +258,11 @@ function Setup() {
       // Must run inside the click: the browser only opens its picker for a user gesture.
       const controller = typeof CaptureController !== 'undefined' ? new CaptureController() : undefined;
       try {
+        // Capture at the chosen quality (never above the screen's own size); the compositor
+        // fits the output to the same box.
+        const q = QUALITIES.find((x) => x.value === prefs.quality) ?? QUALITIES[1];
         display = await navigator.mediaDevices.getDisplayMedia({
-          video: { frameRate: { ideal: 30 }, width: { ideal: 1920 }, height: { ideal: 1080 } },
+          video: { frameRate: { ideal: 30, max: 30 }, width: { ideal: q.width * 2 }, height: { ideal: q.height } },
           audio: true,
           controller,
           selfBrowserSurface: 'exclude',
@@ -288,7 +292,9 @@ function Setup() {
     const session = new RecordingSession(
       { display, camera: mode === 'screen' ? null : cameraStream, mic: micStream },
       mode,
-      { ...bubble, visible: mode === 'screen_camera' && !!cameraStream },
+      { ...bubble, visible: mode === 'screen_camera' && !!cameraStream, fullCamera: false },
+      prefs.quality,
+      prefs.countdown,
     );
     if (mode === 'screen') cameraStream?.getTracks().forEach((t) => t.stop());
     setActiveSession(session);
@@ -314,9 +320,7 @@ function Setup() {
         <div className="stage">
           {mode === 'camera' ? (
             cameraStream ? (
-              <div className="camera-full" style={{ position: 'absolute', inset: 0 }}>
-                <LiveVideo stream={cameraStream} label="Camera preview" />
-              </div>
+              <CameraFill stream={cameraStream} bubble={bubble} />
             ) : (
               <div className="stage-hint">
                 <IconCamera />
@@ -329,10 +333,14 @@ function Setup() {
                 <IconScreen />
                 <span>Your browser asks which screen, window or tab to share when you start.</span>
               </div>
-              {mode === 'screen_camera' && cameraStream && bubble.visible && (
-                <div className={`bubble-preview corner-${bubble.corner} size-${bubble.size}`}>
-                  <LiveVideo stream={cameraStream} label="Camera bubble preview" />
-                </div>
+              {mode === 'screen_camera' && cameraStream && (
+                <BubbleLayer
+                  outWidth={SETUP_FRAME.width}
+                  outHeight={SETUP_FRAME.height}
+                  bubble={bubble}
+                  onChange={updateBubble}
+                  cameraStream={cameraStream}
+                />
               )}
             </>
           )}
@@ -394,44 +402,71 @@ function Setup() {
           <DeviceNotice kind="microphone" problem={micProblem} onRetry={() => setMicAttempt((n) => n + 1)} />
         </div>
 
-        {mode === 'screen_camera' && cameraStream && (
-          <div className="field">
-            <span className="field-label">Camera bubble</span>
-            <div className="chip-row">
-              <select
-                className="select"
-                aria-label="Bubble position"
-                value={bubble.corner}
-                onChange={(e) => setBubble((b) => ({ ...b, corner: e.target.value as BubbleCorner }))}
-              >
-                {CORNERS.map((c) => (
-                  <option key={c.value} value={c.value}>
-                    {c.label}
-                  </option>
-                ))}
-              </select>
-              <select
-                className="select"
-                aria-label="Bubble size"
-                value={bubble.size}
-                onChange={(e) => setBubble((b) => ({ ...b, size: e.target.value as BubbleSize }))}
-              >
-                {SIZES.map((s) => (
-                  <option key={s.value} value={s.value}>
-                    {s.label}
-                  </option>
-                ))}
-              </select>
-            </div>
-          </div>
+        {mode !== 'screen' && cameraStream && (
+          <fieldset className="option-group">
+            <legend>{mode === 'screen_camera' ? 'Camera bubble' : 'Camera'}</legend>
+            {mode === 'screen_camera' && (
+              <p className="muted" style={{ margin: 0 }}>
+                Drag the bubble on the preview to place it. It snaps to the sides and corners.
+              </p>
+            )}
+            <CameraControls bubble={bubble} onChange={updateBubble} showBubble={mode === 'screen_camera'} />
+          </fieldset>
         )}
+
+        <fieldset className="option-group">
+          <legend>Recording</legend>
+          <div className="field">
+            <label className="field-label" htmlFor="quality">
+              Video quality
+            </label>
+            <select
+              id="quality"
+              className="select"
+              value={prefs.quality}
+              onChange={(e) => updatePrefs({ quality: e.target.value as Quality })}
+            >
+              {QUALITIES.map((q) => (
+                <option key={q.value} value={q.value}>
+                  {q.label}
+                </option>
+              ))}
+            </select>
+            <span className="muted">
+              {mode === 'camera'
+                ? 'Camera recordings go up to your camera’s own resolution, usually 1080p.'
+                : `Never larger than what you share${
+                    fitsScreen ? `: this screen fills up to ${QUALITIES.find((x) => x.value === fitsScreen)?.label}` : ''
+                  }. 1440p and 4K need a fast computer.`}
+            </span>
+          </div>
+          <label className="toggle">
+            <span>3 second countdown</span>
+            <input
+              type="checkbox"
+              role="switch"
+              checked={prefs.countdown}
+              onChange={(e) => updatePrefs({ countdown: e.target.checked })}
+            />
+          </label>
+          <label className="toggle">
+            <span>Show recording time</span>
+            <input
+              type="checkbox"
+              role="switch"
+              checked={prefs.showTimer}
+              onChange={(e) => updatePrefs({ showTimer: e.target.checked })}
+            />
+          </label>
+        </fieldset>
 
         <button type="button" className="btn btn-record btn-lg" onClick={start} disabled={!canStart}>
           <span className="rec-dot" style={{ background: 'currentColor' }} aria-hidden="true" />
           Start recording
         </button>
         <p className="muted" style={{ margin: 0 }}>
-          A 3 second countdown runs first. Pause with Alt+Shift+P.
+          {prefs.countdown ? 'A 3 second countdown runs first. ' : ''}Pause with Alt+Shift+P. Your settings are kept for
+          next time.
         </p>
       </aside>
     </div>
@@ -445,8 +480,14 @@ function Recording({ session }: { session: RecordingSession }) {
   const state = useSessionState(session)!;
   const [confirm, setConfirm] = useState<'restart' | 'delete' | null>(null);
   const [busy, setBusy] = useState(false);
-  const [bubble, setBubble] = useState<BubbleOptions>({ ...session.bubble });
+  // The compositor reads session.bubble on every frame, so changes apply mid-take; they are also
+  // remembered for the next recording.
+  const [bubble, updateBubble] = useLiveBubble(session.bubble, (b) => {
+    if (session.hasCamera) savePreferences({ ...loadPreferences(), bubble: b });
+  });
+  const [showTimer] = useState(() => loadPreferences().showTimer);
   const live = state.phase === 'recording' || state.phase === 'paused';
+  const output = state.previewStream ? session.outputSize : null;
   useTicker(state.running);
 
   const elapsed = state.elapsedMs + (state.running ? performance.now() - state.measuredAt : 0);
@@ -454,7 +495,7 @@ function Recording({ session }: { session: RecordingSession }) {
   useEffect(() => {
     if (!live) return;
     const previous = document.title;
-    document.title = `${state.phase === 'paused' ? 'Paused' : 'Recording'} ${formatClock(elapsed)} · Async Video`;
+    document.title = `${state.phase === 'paused' ? 'Paused' : 'Recording'}${showTimer ? ` ${formatClock(elapsed)}` : ''} · Async Video`;
     return () => {
       document.title = previous;
     };
@@ -522,13 +563,7 @@ function Recording({ session }: { session: RecordingSession }) {
     }
   }
 
-  function updateBubble(patch: Partial<BubbleOptions>) {
-    // The compositor reads these options on every frame, so changes apply mid-take.
-    Object.assign(session.bubble, patch);
-    setBubble({ ...session.bubble });
-  }
-
-  const hasBubble = session.mode === 'screen_camera' && session.bubble.visible;
+  const hasBubble = session.mode === 'screen_camera' && session.hasCamera;
 
   return (
     <section aria-labelledby="rec-title">
@@ -543,6 +578,11 @@ function Recording({ session }: { session: RecordingSession }) {
         <span className="muted">
           Switch to what you want to show. Come back here, or use the browser's Stop sharing bar, to finish.
         </span>
+        {output && (
+          <span className="chip" title={`Recording quality chosen: ${session.quality}`}>
+            {output.width} × {output.height}
+          </span>
+        )}
       </div>
 
       <div className="stage">
@@ -550,6 +590,15 @@ function Recording({ session }: { session: RecordingSession }) {
           <LiveVideo stream={state.previewStream} label="What is being recorded" />
         ) : (
           <div className="stage-hint">Starting…</div>
+        )}
+        {hasBubble && output && bubble.visible && (
+          <BubbleLayer
+            outWidth={output.width}
+            outHeight={output.height}
+            bubble={bubble}
+            onChange={updateBubble}
+            allowFullCamera
+          />
         )}
         {state.phase === 'countdown' && (
           <div className="countdown" aria-live="assertive">
@@ -560,9 +609,11 @@ function Recording({ session }: { session: RecordingSession }) {
 
       <div className="control-bar" role="toolbar" aria-label="Recording controls">
         <span className={state.phase === 'paused' ? 'rec-dot is-paused' : 'rec-dot'} aria-hidden="true" />
-        <span className="timer" aria-label={`Recorded ${formatClock(elapsed)}`}>
-          {formatClock(elapsed)}
-        </span>
+        {showTimer && (
+          <span className="timer" aria-label={`Recorded ${formatClock(elapsed)}`}>
+            {formatClock(elapsed)}
+          </span>
+        )}
         <button type="button" className="btn" onClick={togglePause} disabled={!live}>
           {state.phase === 'paused' ? <IconPlay /> : <IconPause />}
           {state.phase === 'paused' ? 'Resume' : 'Pause'}
@@ -576,41 +627,16 @@ function Recording({ session }: { session: RecordingSession }) {
           Delete
         </button>
         <span className="topbar-spacer" />
-        {hasBubble && (
-          <>
-            <select
-              className="select"
-              style={{ width: 'auto' }}
-              aria-label="Bubble position"
-              value={bubble.corner}
-              onChange={(e) => updateBubble({ corner: e.target.value as BubbleCorner })}
-            >
-              {CORNERS.map((c) => (
-                <option key={c.value} value={c.value}>
-                  {c.label}
-                </option>
-              ))}
-            </select>
-            <select
-              className="select"
-              style={{ width: 'auto' }}
-              aria-label="Bubble size"
-              value={bubble.size}
-              onChange={(e) => updateBubble({ size: e.target.value as BubbleSize })}
-            >
-              {SIZES.map((s) => (
-                <option key={s.value} value={s.value}>
-                  {s.label}
-                </option>
-              ))}
-            </select>
-          </>
-        )}
         <button type="button" className="btn btn-record btn-lg" onClick={stop} disabled={!live}>
           <IconStop />
           Stop and share
         </button>
       </div>
+      {session.hasCamera && (
+        <div className="panel live-camera" aria-label="Camera">
+          <CameraControls bubble={bubble} onChange={updateBubble} showBubble={hasBubble} live />
+        </div>
+      )}
       {state.progress?.retrying && (
         <div className="banner" role="status" style={{ marginTop: 'var(--space-4)' }}>
           The local server isn't answering. Keep recording: chunks are kept and sent when it is back.
