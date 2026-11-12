@@ -15,7 +15,7 @@ REPO_ROOT = Path(__file__).resolve().parents[2]
 
 
 def data_dir() -> Path:
-    """`atcon-async-video/data`, or ASYNC_VIDEO_DATA_DIR (tests point it at a temp folder)."""
+    """`loom-clone/data`, or ASYNC_VIDEO_DATA_DIR (tests point it at a temp folder)."""
     return Path(os.environ.get("ASYNC_VIDEO_DATA_DIR") or REPO_ROOT / "data")
 
 
