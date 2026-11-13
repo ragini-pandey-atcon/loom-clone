@@ -77,11 +77,12 @@ export function VideoSettings({
     }
   }
 
-  const switches: { field: 'commentsEnabled' | 'reactionsEnabled' | 'showViewCount' | 'downloadsEnabled'; label: string; help: string }[] = [
+  const switches: { field: 'commentsEnabled' | 'reactionsEnabled' | 'showViewCount' | 'downloadsEnabled' | 'transcriptEnabled'; label: string; help: string }[] = [
     { field: 'commentsEnabled', label: 'Comments', help: 'Turning it off keeps the comments already there.' },
     { field: 'reactionsEnabled', label: 'Emoji reactions', help: 'Turning it off hides reactions from viewers.' },
     { field: 'showViewCount', label: 'Show view count to viewers', help: 'You always see it.' },
     { field: 'downloadsEnabled', label: 'Viewers can download', help: 'You can always download your own videos.' },
+    { field: 'transcriptEnabled', label: 'Transcript and captions', help: 'Viewers can read and search it, and turn captions on.' },
   ];
 
   return (

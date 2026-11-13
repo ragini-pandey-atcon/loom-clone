@@ -130,3 +130,29 @@ Not done: MP4 conversion for downloads (no ffmpeg), middle cuts in trim.
 Verified: 29 backend tests, 38 unit tests, typecheck, 13 e2e tests (2 new, with an owner and a
 viewer in separate browsers). Skipped with reasons: viewer quality selector (no transcoding), home
 feed (no workspace). Still to do: transcripts, captions and transcript search.
+
+## 2026-11-13: transcripts and captions, on this computer
+
+- Engine: whisper.cpp through `pywhispercpp` 1.5.1, model `base` (multilingual, 148 MB, downloaded
+  once into `data/models`). Chosen over faster-whisper, which installs PyAV (ffmpeg's libraries) and
+  onnxruntime; pywhispercpp takes raw samples and needs only numpy, requests, tqdm, platformdirs.
+  Measured here: 2.1 s for 10.6 s of speech, word for word.
+- The browser decodes the sound (`decodeAudioData` into a 16 kHz OfflineAudioContext), mixes to
+  mono 16-bit PCM and `PUT`s it to `/api/videos/:id/audio`. Near-silence is sent as "no sound",
+  because Whisper invents words on silence. No audio track means an empty, ready transcript.
+- One background thread transcribes one video at a time; `[BLANK_AUDIO]`-style markers are
+  dropped; the audio file is deleted afterwards. After a restart, waiting work is queued again and
+  work whose audio is gone is marked failed with a retry. The engine is injected, so the 10 API
+  tests use a fake.
+- Recordings start their transcript when the upload finishes; uploads after upload; older videos
+  from "Create transcript". Transcript tab: follows playback, click to seek, search with
+  highlights, copy, WebVTT download, Redo. Captions via `<track>` and a CC button, lifted above the
+  control bar while it shows. Library search matches what was said and shows the line.
+- Owner switch "Transcript and captions": enforced by the API for viewers and for search.
+- The e2e run caught a race this batch introduced: polling the video while a transcript is made
+  could undo a just-clicked Watch later. Stale re-reads are now dropped, and toggles re-apply
+  after their save (15/15 across three repeats).
+
+Verified: 39 backend tests, 41 unit tests, typecheck, 14 e2e tests including one with the real
+model (Windows voice speaks a sentence; transcript, click-to-seek, search, captions, library
+search, and the off switch for a viewer). The feature matrix has no "no" rows left.

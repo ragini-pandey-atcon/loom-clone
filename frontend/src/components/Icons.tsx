@@ -78,6 +78,12 @@ export const IconPopOut = (p: IconProps) => (
     <rect x="12" y="11" width="7" height="6" rx="1" fill="currentColor" stroke="none" />
   </Icon>
 );
+export const IconCaptions = (p: IconProps) => (
+  <Icon {...p}>
+    <rect x="2.5" y="5" width="19" height="14" rx="2" />
+    <path d="M10 10.2a2.5 2.5 0 1 0 0 3.6M17 10.2a2.5 2.5 0 1 0 0 3.6" />
+  </Icon>
+);
 export const IconBell = (p: IconProps) => (
   <Icon {...p}>
     <path d="M6 16V11a6 6 0 0 1 12 0v5l1.5 2h-15z" />

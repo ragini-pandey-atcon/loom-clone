@@ -2,7 +2,17 @@ import { type Ref, useCallback, useEffect, useImperativeHandle, useRef, useState
 
 import type { Comment, Reaction } from '../api/client';
 import { formatClock } from '../lib/format';
-import { IconFullscreen, IconMute, IconPause, IconPlay, IconTheater, IconVolume } from './Icons';
+import { IconCaptions, IconFullscreen, IconMute, IconPause, IconPlay, IconTheater, IconVolume } from './Icons';
+
+const CAPTIONS_KEY = 'loom-clone.captions';
+
+function captionsWanted(): boolean {
+  try {
+    return localStorage.getItem(CAPTIONS_KEY) === '1';
+  } catch {
+    return false;
+  }
+}
 import { Menu } from './ui';
 
 export interface PlayerHandle {
@@ -38,6 +48,8 @@ export function Player({
   initialRate,
   theater = false,
   onToggleTheater,
+  captionsSrc,
+  onTime,
 }: {
   ref?: Ref<PlayerHandle>;
   src: string;
@@ -59,6 +71,10 @@ export function Player({
   initialRate?: number;
   theater?: boolean;
   onToggleTheater?: () => void;
+  /** WebVTT captions from the transcript; a CC button appears when given. */
+  captionsSrc?: string;
+  /** The playhead (file time), whenever it moves. */
+  onTime?: (ms: number) => void;
 }) {
   const root = useRef<HTMLDivElement>(null);
   const video = useRef<HTMLVideoElement>(null);
@@ -80,6 +96,18 @@ export function Player({
   const [hoverMs, setHoverMs] = useState<number | null>(null);
   const [floaters, setFloaters] = useState<Floater[]>([]);
   const [error, setError] = useState(false);
+
+  const [captionsOn, setCaptionsOn] = useState(captionsWanted);
+  const onTimeRef = useRef(onTime);
+  onTimeRef.current = onTime;
+  useEffect(() => onTimeRef.current?.(currentMs), [currentMs]);
+
+  // Show or hide the caption track; "hidden" still loads it, so turning it on is instant.
+  const applyCaptions = useCallback(() => {
+    const track = video.current?.textTracks[0];
+    if (track) track.mode = captionsOn ? 'showing' : 'hidden';
+  }, [captionsOn]);
+  useEffect(applyCaptions, [applyCaptions, captionsSrc]);
 
   const fileDurationMs = mediaDuration ?? fallbackDurationMs ?? 0;
   const startMs = Math.max(0, windowStartMs);
@@ -314,7 +342,9 @@ export function Player({
         }}
         onRateChange={() => setRate(video.current!.playbackRate)}
         onError={() => setError(true)}
-      />
+      >
+        {captionsSrc && <track key={captionsSrc} kind="captions" label="Captions" src={captionsSrc} default={captionsOn} onLoad={applyCaptions} />}
+      </video>
 
       {error && (
         <div className="player-message" role="alert">
@@ -449,6 +479,27 @@ export function Player({
               },
             }))}
           />
+          {captionsSrc && (
+            <button
+              type="button"
+              className="icon-btn"
+              aria-label={captionsOn ? 'Hide captions' : 'Show captions'}
+              aria-pressed={captionsOn}
+              title={captionsOn ? 'Hide captions' : 'Show captions'}
+              onClick={() =>
+                setCaptionsOn((on) => {
+                  try {
+                    localStorage.setItem(CAPTIONS_KEY, on ? '0' : '1');
+                  } catch {
+                    /* the choice just isn't remembered */
+                  }
+                  return !on;
+                })
+              }
+            >
+              <IconCaptions />
+            </button>
+          )}
           {onToggleTheater && (
             <button
               type="button"

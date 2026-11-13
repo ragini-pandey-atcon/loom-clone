@@ -46,6 +46,8 @@ create table if not exists videos (
   show_view_count integer not null default 0 check (show_view_count in (0, 1)),
   downloads_enabled integer not null default 0 check (downloads_enabled in (0, 1)),
   recommended_speed real check (recommended_speed is null or recommended_speed between 0.5 and 2),
+  -- Viewers see the transcript and captions. Added 2026-11-13 with transcripts.
+  transcript_enabled integer not null default 1 check (transcript_enabled in (0, 1)),
   created_at text not null,
   updated_at text not null
 );
@@ -133,3 +135,24 @@ create table if not exists notifications (
   read_at text
 );
 create index if not exists notifications_recipient_idx on notifications (recipient, created_at);
+
+-- Transcripts, made on this computer by a local speech model (whisper.cpp). Added 2026-11-13.
+-- status: pending (audio received, waiting), running, ready, failed.
+create table if not exists transcripts (
+  video_id text primary key references videos (id) on delete cascade,
+  status text not null check (status in ('pending', 'running', 'ready', 'failed')),
+  language text,
+  model text,
+  error text,
+  created_at text not null,
+  updated_at text not null
+);
+
+create table if not exists transcript_segments (
+  video_id text not null references videos (id) on delete cascade,
+  idx integer not null,
+  start_ms integer not null check (start_ms >= 0),
+  end_ms integer not null check (end_ms >= start_ms),
+  text text not null,
+  primary key (video_id, idx)
+);

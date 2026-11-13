@@ -156,7 +156,7 @@ test('rename, archive, restore and delete from the library', async ({ browser })
   await expect(page.getByRole('heading', { name: title })).toBeVisible();
 
   await page.goto('/');
-  await page.getByLabel('Search by title').fill(title);
+  await page.getByLabel('Search titles, tags and what was said').fill(title);
   await expect(page.locator('.card')).toHaveCount(1);
   await page.getByRole('button', { name: `Actions for ${title}` }).click();
   await page.getByRole('menuitem', { name: 'Archive' }).click();

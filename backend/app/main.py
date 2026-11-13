@@ -13,12 +13,13 @@ from typing import Annotated, Any
 
 from fastapi import FastAPI, HTTPException, Query, Request, Response
 from fastapi.concurrency import run_in_threadpool
-from fastapi.responses import FileResponse, StreamingResponse
+from fastapi.responses import FileResponse, PlainTextResponse, StreamingResponse
 from pydantic import BaseModel, ConfigDict, Field
 from pydantic.alias_generators import to_camel
 
 from . import storage
 from .db import connect, init_db, is_owner_device, new_id, new_video_id, now_iso
+from .transcribe import MAX_AUDIO_BYTES, Transcriber, TranscriptQueue, to_vtt, whisper_transcriber
 
 log = logging.getLogger("async_video")
 
@@ -71,6 +72,7 @@ class VideoPatch(CamelModel):
     trim_end_ms: int | None = Field(default=None, ge=1)
     show_view_count: bool | None = None
     downloads_enabled: bool | None = None
+    transcript_enabled: bool | None = None
     # null clears it (viewers start at normal speed).
     recommended_speed: float | None = None
 
@@ -119,7 +121,8 @@ VIDEO_COLUMNS = """
   v.*,
   (select count(*) from views w where w.video_id = v.id and w.counted = 1) as view_count,
   (select count(*) from comments c where c.video_id = v.id and c.deleted_at is null) as comment_count,
-  (select group_concat(t.tag, char(31)) from video_tags t where t.video_id = v.id) as tags_joined
+  (select group_concat(t.tag, char(31)) from video_tags t where t.video_id = v.id) as tags_joined,
+  (select tr.status from transcripts tr where tr.video_id = v.id) as transcript_status
 """
 
 
@@ -151,6 +154,9 @@ def video_json(row: sqlite3.Row) -> dict[str, Any]:
         "showViewCount": bool(row["show_view_count"]),
         "downloadsEnabled": bool(row["downloads_enabled"]),
         "recommendedSpeed": row["recommended_speed"],
+        "transcriptEnabled": bool(row["transcript_enabled"]),
+        # none (never asked for), pending, running, ready or failed.
+        "transcriptStatus": row["transcript_status"] or "none",
         "tags": sorted((row["tags_joined"] or "").split("\x1f"), key=str.lower) if row["tags_joined"] else [],
     }
 
@@ -308,18 +314,25 @@ def _require_recording(row: sqlite3.Row) -> None:
 
 
 @asynccontextmanager
-async def lifespan(_: FastAPI):
+async def lifespan(app: FastAPI):
     init_db()
     with connect() as conn:
         known = {r["id"] for r in conn.execute("select id from videos")}
     removed = storage.sweep_orphans(known)
     if removed:
         log.info("Removed %d orphaned video folders", removed)
+    jobs: TranscriptQueue = app.state.transcripts
+    jobs.start()
+    jobs.resume()
     yield
+    jobs.stop()
 
 
-def create_app() -> FastAPI:
+def create_app(transcriber: Transcriber | None = None, inline_transcripts: bool = False) -> FastAPI:
+    """transcriber: the speech engine (tests pass a fake). inline_transcripts: transcribe inside
+    the request instead of on the background thread (tests)."""
     app = FastAPI(title="ATCON Async Video (local)", lifespan=lifespan)
+    app.state.transcripts = TranscriptQueue(transcriber or whisper_transcriber(), inline=inline_transcripts)
 
     @app.get("/api/health")
     def health() -> dict[str, bool]:
@@ -358,15 +371,29 @@ def create_app() -> FastAPI:
             params.append(clean_tag(tag))
         if q and q.strip():
             escaped = q.strip().replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
-            # Titles and tags both match a search.
+            # Titles, tags and what was said all match a search.
             sql += (
                 " and (v.title like ? escape '\\' or exists (select 1 from video_tags t"
-                " where t.video_id = v.id and t.tag like ? escape '\\'))"
+                " where t.video_id = v.id and t.tag like ? escape '\\')"
+                " or (v.transcript_enabled = 1 and exists (select 1 from transcript_segments s"
+                " where s.video_id = v.id and s.text like ? escape '\\')))"
             )
-            params.extend([f"%{escaped}%", f"%{escaped}%"])
+            params.extend([f"%{escaped}%", f"%{escaped}%", f"%{escaped}%"])
         sql += " order by v.created_at desc"
         with connect() as conn:
-            return [video_json(r) for r in conn.execute(sql, params)]
+            out = [video_json(r) for r in conn.execute(sql, params)]
+            if q and q.strip():
+                # Where it was said, so the library can show the line and open the video there.
+                like = "%" + q.strip().replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_") + "%"
+                for video in out:
+                    hit = conn.execute(
+                        "select s.start_ms, s.text from transcript_segments s join videos v on v.id = s.video_id"
+                        " where s.video_id = ? and v.transcript_enabled = 1 and s.text like ? escape '\\'"
+                        " order by s.idx limit 1",
+                        (video["id"], like),
+                    ).fetchone()
+                    video["transcriptMatch"] = {"startMs": hit["start_ms"], "text": hit["text"]} if hit else None
+            return out
 
     @app.post("/api/videos", status_code=201)
     def create_video(body: VideoCreate) -> dict[str, Any]:
@@ -424,6 +451,9 @@ def create_app() -> FastAPI:
         if body.downloads_enabled is not None:
             sets.append("downloads_enabled = ?")
             params.append(int(body.downloads_enabled))
+        if body.transcript_enabled is not None:
+            sets.append("transcript_enabled = ?")
+            params.append(int(body.transcript_enabled))
         given = body.model_fields_set
         if "recommended_speed" in given:
             speed = body.recommended_speed
@@ -492,6 +522,16 @@ def create_app() -> FastAPI:
                 " chunk_count, seekable, has_thumbnail, folder_id, trim_start_ms, trim_end_ms, uploaded, ?, ?"
                 " from videos where id = ?",
                 (copy_id, title, stamp, stamp, video_id),
+            )
+            conn.execute(
+                "insert into transcripts (video_id, status, language, model, error, created_at, updated_at)"
+                " select ?, status, language, model, error, ?, ? from transcripts where video_id = ? and status = 'ready'",
+                (copy_id, stamp, stamp, video_id),
+            )
+            conn.execute(
+                "insert into transcript_segments (video_id, idx, start_ms, end_ms, text)"
+                " select ?, idx, start_ms, end_ms, text from transcript_segments where video_id = ?",
+                (copy_id, video_id),
             )
             return video_json(load_video(conn, copy_id))
 
@@ -659,6 +699,79 @@ def create_app() -> FastAPI:
             return FileResponse(path, media_type=media_type, filename=download_name(row["title"], media_type))
         # Starlette's FileResponse answers Range requests with 206, which is what makes seeking work.
         return FileResponse(path, media_type=media_type)
+
+    # Transcripts ------------------------------------------------------------------------------
+
+    def transcript_allowed(conn: sqlite3.Connection, row: sqlite3.Row, viewer_id: str | None) -> None:
+        if not row["transcript_enabled"] and not is_owner_device(conn, viewer_id):
+            raise HTTPException(403, "The owner has turned the transcript off for this video")
+
+    @app.put("/api/videos/{video_id}/audio", status_code=202)
+    async def put_audio(video_id: str, request: Request) -> dict[str, Any]:
+        """16 kHz mono 16-bit little-endian PCM, decoded by the browser. An empty body means the
+        video has no sound: the transcript is ready and empty."""
+        declared = int(request.headers.get("content-length") or 0)
+        if declared > MAX_AUDIO_BYTES:
+            raise HTTPException(413, "Transcripts are made for up to three hours of audio")
+        with connect() as conn:
+            row = load_video(conn, video_id)
+            if row["status"] != "ready":
+                raise HTTPException(409, "The video is still being recorded")
+            status = conn.execute("select status from transcripts where video_id = ?", (video_id,)).fetchone()
+            if status and status["status"] in ("pending", "running"):
+                raise HTTPException(409, "A transcript is already being made")
+        try:
+            size = await storage.write_stream(
+                video_id, request.stream(), MAX_AUDIO_BYTES, path=storage.audio_path(video_id)
+            )
+        except ValueError as exc:
+            raise HTTPException(413, "Transcripts are made for up to three hours of audio") from exc
+        stamp = now_iso()
+        with connect() as conn, conn:
+            conn.execute("delete from transcript_segments where video_id = ?", (video_id,))
+            conn.execute(
+                "insert into transcripts (video_id, status, created_at, updated_at) values (?, ?, ?, ?)"
+                " on conflict (video_id) do update set status = excluded.status, error = null,"
+                " updated_at = excluded.updated_at",
+                (video_id, "pending" if size else "ready", stamp, stamp),
+            )
+        if size:
+            await run_in_threadpool(app.state.transcripts.submit, video_id)
+        else:
+            storage.audio_path(video_id).unlink(missing_ok=True)
+        with connect() as conn:
+            return transcript_json(conn, video_id)
+
+    def transcript_json(conn: sqlite3.Connection, video_id: str) -> dict[str, Any]:
+        row = conn.execute("select * from transcripts where video_id = ?", (video_id,)).fetchone()
+        segments = conn.execute(
+            "select start_ms, end_ms, text from transcript_segments where video_id = ? order by idx", (video_id,)
+        ).fetchall()
+        return {
+            "status": row["status"] if row else "none",
+            "language": row["language"] if row else None,
+            "error": row["error"] if row else None,
+            "segments": [{"startMs": s["start_ms"], "endMs": s["end_ms"], "text": s["text"]} for s in segments],
+        }
+
+    @app.get("/api/videos/{video_id}/transcript")
+    def get_transcript(
+        video_id: str, viewer_id: Annotated[str | None, Query(alias="viewerId", max_length=64)] = None
+    ) -> dict[str, Any]:
+        with connect() as conn:
+            transcript_allowed(conn, load_video(conn, video_id), viewer_id)
+            return transcript_json(conn, video_id)
+
+    @app.get("/api/videos/{video_id}/captions.vtt")
+    def get_captions(
+        video_id: str, viewer_id: Annotated[str | None, Query(alias="viewerId", max_length=64)] = None
+    ) -> PlainTextResponse:
+        with connect() as conn:
+            transcript_allowed(conn, load_video(conn, video_id), viewer_id)
+            segments = conn.execute(
+                "select start_ms, end_ms, text from transcript_segments where video_id = ? order by idx", (video_id,)
+            ).fetchall()
+        return PlainTextResponse(to_vtt(segments), media_type="text/vtt", headers={"Cache-Control": "no-cache"})
 
     # Tags ---------------------------------------------------------------------------------
 

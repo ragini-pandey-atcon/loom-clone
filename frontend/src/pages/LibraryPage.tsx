@@ -44,6 +44,7 @@ import { formatClock, formatWhen, plural } from '../lib/format';
 import { claimOwnerDevice, viewerId } from '../lib/identity';
 import { probeVideo, titleFromFileName, UPLOAD_ACCEPT, uploadMimeType } from '../lib/probeVideo';
 import { recoverVideo } from '../lib/recover';
+import { startTranscript } from '../lib/transcriptAudio';
 import { activeSession, isBusy } from '../recorder/session';
 
 type Dialog =
@@ -236,13 +237,13 @@ export function LibraryPage({ archived }: { archived: boolean }) {
           <div className="search" role="search">
             <IconSearch />
             <label className="sr-only" htmlFor="search">
-              Search by title
+              Search titles, tags and what was said
             </label>
             <input
               id="search"
               className="input"
               type="search"
-              placeholder={folderId ? 'Search this folder' : 'Search by title'}
+              placeholder={folderId ? 'Search this folder' : 'Search titles, tags and what was said'}
               value={query}
               onChange={(e) => setQuery(e.target.value)}
             />
@@ -518,6 +519,8 @@ function useUploader(folderId: string | undefined, onDone: (video: Video) => voi
         setProgress,
       );
       if (probe.thumbnail) await api.putThumbnail(video.id, probe.thumbnail).catch(() => {});
+      // Transcribed on this computer in the background; the video page shows progress.
+      void startTranscript(video.id, file).catch((err) => console.warn('Transcript not started', err));
       toast('Uploaded');
       onDone(video);
     } catch (e) {
@@ -602,7 +605,10 @@ function VideoCard({
       </div>
       <div className="card-body">
         <div className="card-text">
-          <Link className="card-title" to={`/v/${video.id}`}>
+          <Link
+            className="card-title"
+            to={video.transcriptMatch ? `/v/${video.id}?t=${Math.floor(video.transcriptMatch.startMs / 1000)}` : `/v/${video.id}`}
+          >
             {video.title}
           </Link>
           <div className="card-meta">
@@ -624,6 +630,13 @@ function VideoCard({
         </div>
         <Menu label={`Actions for ${video.title}`} trigger={<IconMore />} items={items} />
       </div>
+      {video.transcriptMatch && (
+        <p className="card-said">
+          <span>
+            <span className="muted">Said at {formatClock(Math.max(0, video.transcriptMatch.startMs - playWindow(video).startMs))}:</span> “{video.transcriptMatch.text}”
+          </span>
+        </p>
+      )}
     </article>
   );
 }

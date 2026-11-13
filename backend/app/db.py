@@ -27,6 +27,11 @@ def videos_dir() -> Path:
     return data_dir() / "videos"
 
 
+def models_dir() -> Path:
+    """Speech model files (downloaded once, about 150 MB for the default)."""
+    return data_dir() / "models"
+
+
 def now_iso() -> str:
     """UTC, millisecond precision, fixed width, so it sorts correctly as text."""
     moment = datetime.now(UTC)
@@ -84,6 +89,9 @@ _ADDED_COLUMNS: dict[str, dict[str, str]] = {
         "downloads_enabled": "downloads_enabled integer not null default 0 check (downloads_enabled in (0, 1))",
         "recommended_speed": (
             "recommended_speed real check (recommended_speed is null or recommended_speed between 0.5 and 2)"
+        ),
+        "transcript_enabled": (
+            "transcript_enabled integer not null default 1 check (transcript_enabled in (0, 1))"
         ),
     },
     "comments": {

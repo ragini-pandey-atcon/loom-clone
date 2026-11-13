@@ -40,9 +40,9 @@ Email notification to the owner on new comment,notifications,skip,yes,skip,"loca
 Notifications page (comments replies shares),notifications,should,yes,yes,"comments, replies, @mentions and video replies, with an unread count on a bell; no shares (no accounts) (2026-11-13)"
 @mentions in comments,collaboration,should,yes,yes,"suggestions from everyone who commented, reacted or watched; names with spaces work; the mentioned person is notified"
 Per-video settings: comments and reactions on or off,settings,should,yes,yes,S14
-Transcript with click-to-seek and search,transcript,should,yes,no,on all Loom plans; EU-region speech-to-text (hard part 5)
-Closed captions from the transcript,transcript,should,yes,no,
-Search inside transcripts from the library,library,should,yes,no,F09
+Transcript with click-to-seek and search,transcript,should,yes,yes,"whisper.cpp on this computer (pywhispercpp, base model); audio decoded in the browser, no ffmpeg; follows playback; copy (2026-11-13)"
+Closed captions from the transcript,transcript,should,yes,yes,"WebVTT from the segments, CC button, downloadable; owner can turn transcript and captions off"
+Search inside transcripts from the library,library,should,yes,yes,"library search matches what was said and shows the line; the card opens the video at that moment"
 Download as MP4,viewing,should,yes,partial,"downloads the file as recorded (WebM) or uploaded (MP4/MOV); no MP4 conversion without ffmpeg; owner always, viewers when the owner allows it"
 Shared with me list,library,skip,yes,skip,"local-only, no accounts: nobody shares to a named person. Was: S17"
 Processing and failed states on the video page,viewing,should,yes,yes,"finishing with progress, failed with retry, unfinished with recover"

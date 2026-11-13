@@ -9,6 +9,7 @@ import {
   EMOJIS,
   type Folder,
   isOffline,
+  captionsUrl,
   mediaUrl,
   playedDurationMs,
   playWindow,
@@ -36,6 +37,7 @@ import {
 import { MoveDialog } from '../components/LibraryDialogs';
 import { TagEditor } from '../components/TagEditor';
 import { TrimEditor, type TrimRange } from '../components/TrimEditor';
+import { TranscriptPanel } from '../components/TranscriptPanel';
 import { VideoSettings } from '../components/VideoSettings';
 import { Insights } from '../components/Insights';
 import { NamePrompt } from '../components/NamePrompt';
@@ -57,12 +59,22 @@ export function VideoPage() {
   const sessionState = useSessionState(session);
   const ownSession = sessionState?.videoId === id ? sessionState : null;
 
-  const [video, setVideo] = useState<Video | null>(null);
+  const [video, setVideoRaw] = useState<Video | null>(null);
+  // Every change made on this page counts here. A background re-read (polling while a transcript
+  // is made) that started before the latest change is dropped, so it cannot undo that change.
+  const edits = useRef(0);
+  const setVideo = useCallback((next: React.SetStateAction<Video | null>) => {
+    edits.current++;
+    setVideoRaw(next);
+  }, []);
   const [loadError, setLoadError] = useState<'missing' | 'offline' | 'error' | null>(null);
   const [comments, setComments] = useState<Comment[]>([]);
   const [reactions, setReactions] = useState<Reaction[]>([]);
   const [people, setPeople] = useState<string[]>([]);
-  const [tab, setTab] = useState<'comments' | 'activity' | 'settings'>('comments');
+  const [tab, setTab] = useState<'comments' | 'transcript' | 'activity' | 'settings'>('comments');
+  const [playheadMs, setPlayheadMs] = useState(0);
+  // Bumped when the transcript changes, so the player fetches the new captions.
+  const [captionsVersion, setCaptionsVersion] = useState('');
   const [theater, setTheater] = useState(() => {
     try {
       return localStorage.getItem('loom-clone.theater') === '1';
@@ -93,9 +105,10 @@ export function VideoPage() {
   const player = useRef<PlayerHandle>(null);
 
   const loadVideo = useCallback(async () => {
+    const seen = edits.current;
     try {
       const v = await api.getVideo(id, viewerId());
-      setVideo(v);
+      if (seen === edits.current) setVideoRaw(v);
       setLoadError(null);
       return v;
     } catch (error) {
@@ -118,6 +131,14 @@ export function VideoPage() {
     void loadVideo();
     void loadSocial();
   }, [loadVideo, loadSocial]);
+
+  // While a transcript is being made on this computer, check back so captions appear when ready.
+  const transcriptBusy = video?.transcriptStatus === 'pending' || video?.transcriptStatus === 'running';
+  useEffect(() => {
+    if (!transcriptBusy) return;
+    const timer = setInterval(() => void loadVideo(), 3000);
+    return () => clearInterval(timer);
+  }, [transcriptBusy, loadVideo]);
 
   // While the take is still uploading (or someone else is recording it), check back.
   const status = video?.status;
@@ -207,6 +228,8 @@ export function VideoPage() {
     try {
       if (on) await api.unfollow(video.id, viewerId());
       else await api.follow(video.id, viewerId());
+      // Saved: say so again, in case a re-read from before the save landed meanwhile.
+      setVideo((v) => (v ? { ...v, following: !on } : v));
       toast(on ? 'You will not hear about new comments' : 'You will be told about new comments');
     } catch {
       setVideo({ ...video, following: on });
@@ -221,6 +244,8 @@ export function VideoPage() {
     try {
       if (saved) await api.removeWatchLater(video.id, viewerId());
       else await api.addWatchLater(video.id, viewerId());
+      // Saved: say so again, in case a re-read from before the save landed meanwhile.
+      setVideo((v) => (v ? { ...v, watchLater: !saved } : v));
       toast(saved ? 'Removed from Watch later' : 'Saved to Watch later');
     } catch {
       setVideo({ ...video, watchLater: saved });
@@ -339,6 +364,12 @@ export function VideoPage() {
               initialRate={owner ? undefined : (video.recommendedSpeed ?? undefined)}
               theater={theater}
               onToggleTheater={toggleTheater}
+              onTime={setPlayheadMs}
+              captionsSrc={
+                video.transcriptStatus === 'ready' && (owner || video.transcriptEnabled)
+                  ? captionsUrl(video.id, viewerId(), `${video.updatedAt}:${captionsVersion}`)
+                  : undefined
+              }
               comments={comments}
               reactions={video.reactionsEnabled ? reactions : []}
               onWatch={(delta, pos) => {
@@ -427,6 +458,11 @@ export function VideoPage() {
 
         <aside className="side" aria-label="Comments and activity">
           <div className="tabs" role="tablist">
+            {video?.status === 'ready' && (owner || video.transcriptEnabled) && (
+              <button type="button" role="tab" aria-selected={tab === 'transcript'} onClick={() => setTab('transcript')}>
+                Transcript
+              </button>
+            )}
             <button type="button" role="tab" aria-selected={tab === 'comments'} onClick={() => setTab('comments')}>
               Comments{comments.length ? ` (${comments.filter((c) => !c.deleted).length})` : ''}
             </button>
@@ -442,7 +478,19 @@ export function VideoPage() {
             )}
           </div>
           <div className="tab-panel" role="tabpanel">
-            {tab === 'settings' && owner && video ? (
+            {tab === 'transcript' && video?.status === 'ready' && (owner || video.transcriptEnabled) ? (
+              <TranscriptPanel
+                video={video}
+                owner={owner}
+                currentMs={playheadMs}
+                offsetMs={(trimDraft ?? playWindow(video)).startMs}
+                onSeek={(ms) => player.current?.seek(ms, true)}
+                onChanged={(tr) => {
+                  setCaptionsVersion(`${tr.status}:${tr.segments.length}`);
+                  setVideo((v) => (v ? { ...v, transcriptStatus: tr.status } : v));
+                }}
+              />
+            ) : tab === 'settings' && owner && video ? (
               <VideoSettings
                 video={video}
                 onVideoChanged={(v) => setVideo({ ...v, watchLater: video.watchLater, following: video.following })}

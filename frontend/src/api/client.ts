@@ -31,9 +31,29 @@ export interface Video {
   /** Viewers start at this speed; null means normal. */
   recommendedSpeed: number | null;
   tags: string[];
+  /** Viewers see the transcript and captions. */
+  transcriptEnabled: boolean;
+  transcriptStatus: TranscriptStatus;
+  /** Only in search results: the first line where the words were said. */
+  transcriptMatch?: { startMs: number; text: string } | null;
   /** Only when the request named a viewer. */
   watchLater?: boolean;
   following?: boolean;
+}
+
+export type TranscriptStatus = 'none' | 'pending' | 'running' | 'ready' | 'failed';
+
+export interface TranscriptSegment {
+  startMs: number;
+  endMs: number;
+  text: string;
+}
+
+export interface Transcript {
+  status: TranscriptStatus;
+  language: string | null;
+  error: string | null;
+  segments: TranscriptSegment[];
 }
 
 export type NotificationKind = 'comment' | 'reply' | 'mention' | 'video_reply';
@@ -183,8 +203,18 @@ export const api = {
       showViewCount: boolean;
       downloadsEnabled: boolean;
       recommendedSpeed: number | null;
+      transcriptEnabled: boolean;
     }>,
   ) => request<Video>(`/videos/${id}`, json('PATCH', body)),
+  /** 16 kHz mono 16-bit PCM; an empty body means the video has no sound. */
+  putAudio: (id: string, pcm: Blob) =>
+    request<Transcript>(`/videos/${id}/audio`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/octet-stream' },
+      body: pcm,
+    }),
+  getTranscript: (id: string, viewer: string) =>
+    request<Transcript>(`/videos/${id}/transcript?viewerId=${encodeURIComponent(viewer)}`),
   setTags: (id: string, tags: string[]) => request<Video>(`/videos/${id}/tags`, json('PUT', { tags })),
   listTags: () => request<TagCount[]>('/tags'),
   follow: (id: string, viewer: string) => request<void>(`/videos/${id}/follow`, json('PUT', { viewerId: viewer })),
@@ -271,6 +301,8 @@ export const api = {
 };
 
 export const mediaUrl = (id: string) => `/api/videos/${id}/media`;
+export const captionsUrl = (id: string, viewer: string, version = '') =>
+  `/api/videos/${id}/captions.vtt?viewerId=${encodeURIComponent(viewer)}&v=${encodeURIComponent(version)}`;
 /** viewer: the asking browser's id; the API lets the owner, or anyone when the owner allowed it. */
 export const downloadUrl = (id: string, viewer: string) =>
   `/api/videos/${id}/media?download=1&viewerId=${encodeURIComponent(viewer)}`;

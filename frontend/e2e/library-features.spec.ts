@@ -138,9 +138,9 @@ test('folders: create, move a video in, rename, open, delete keeps the video', a
   // At the top level, a video in a folder shows inside its folder only...
   await expect(page.getByRole('link', { name: 'Folder test' })).toBeHidden();
   // ...but a search looks everywhere, and says which folder it is in.
-  await page.getByLabel('Search by title').fill('Folder test');
+  await page.getByLabel('Search titles, tags and what was said').fill('Folder test');
   await expect(page.locator('.card', { hasText: 'Folder test' })).toContainText('E2E onboarding');
-  await page.getByLabel('Search by title').fill('');
+  await page.getByLabel('Search titles, tags and what was said').fill('');
 
   await card.getByRole('link').click();
   await expect(page).toHaveURL(`/folders/${folderId}`);

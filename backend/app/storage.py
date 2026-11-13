@@ -117,10 +117,15 @@ def assemble(video_id: str, chunk_count: int, header: bytes, body_offset: int) -
     return target.stat().st_size
 
 
-async def write_stream(video_id: str, chunks: AsyncIterator[bytes], limit: int) -> int:
-    """Writes an uploaded file to the media path. Raises ValueError past `limit` bytes; the
-    partial file is removed and nothing appears under the real name."""
-    path = media_path(video_id)
+def audio_path(video_id: str) -> Path:
+    """16 kHz mono 16-bit PCM from the browser, kept only until it is transcribed."""
+    return video_folder(video_id) / "audio.pcm"
+
+
+async def write_stream(video_id: str, chunks: AsyncIterator[bytes], limit: int, path: Path | None = None) -> int:
+    """Writes an uploaded body to `path` (the media file by default). Raises ValueError past
+    `limit` bytes; the partial file is removed and nothing appears under the real name."""
+    path = path or media_path(video_id)
     path.parent.mkdir(parents=True, exist_ok=True)
     tmp = path.with_name(path.name + ".upload")
     size = 0

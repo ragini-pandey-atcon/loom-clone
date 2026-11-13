@@ -8,6 +8,7 @@ import { useSyncExternalStore } from 'react';
 
 import { api, ApiError, type SourceMode } from '../api/client';
 import { viewerId } from '../lib/identity';
+import { startTranscript } from '../lib/transcriptAudio';
 import { fixWebm } from '../lib/webmFix';
 import type { BubbleOptions } from './bubble';
 import { type Composite, createComposite } from './compositor';
@@ -322,6 +323,10 @@ export class RecordingSession {
         this.set({ replyPosted: posted });
       }
       this.set({ phase: 'done' });
+      // The transcript follows in the background: the video is watchable already. The repaired
+      // file decodes most reliably; a take with no microphone has no audio and gets an empty one.
+      const playable = header.length ? new Blob([header, recording.slice(bodyOffset)], { type: this.mimeType }) : recording;
+      void startTranscript(videoId, playable).catch((e) => console.warn('Transcript not started', e));
     } catch (error) {
       this.set({
         phase: 'failed',
