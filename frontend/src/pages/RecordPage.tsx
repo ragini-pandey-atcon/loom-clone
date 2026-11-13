@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { Link, useNavigate } from 'react-router';
+import { Link, useNavigate, useSearchParams } from 'react-router';
 
-import { type SourceMode, shareUrl } from '../api/client';
+import { api, type SourceMode, shareUrl } from '../api/client';
 import { AudioMeter } from '../components/AudioMeter';
 import {
   IconCamera,
@@ -20,7 +20,7 @@ import { IconPopOut } from '../components/Icons';
 import { LiveVideo } from '../components/LiveVideo';
 import { ConfirmDialog, copyText, toast } from '../components/ui';
 import { formatClock } from '../lib/format';
-import { claimOwnerDevice } from '../lib/identity';
+import { claimOwnerDevice, displayName, setDisplayName } from '../lib/identity';
 import type { BubbleOptions } from '../recorder/bubble';
 import { loadPreferences, type RecorderPreferences, savePreferences } from '../recorder/preferences';
 import { QUALITIES, type Quality, screenQuality } from '../recorder/quality';
@@ -112,9 +112,12 @@ export function RecordPage() {
   const session = useActiveSession();
   const state = useSessionState(session);
 
+  const [params] = useSearchParams();
+  const replying = params.has('replyTo');
   useEffect(() => {
-    claimOwnerDevice();
-  }, []);
+    // A viewer recording a video reply is not the owner; anyone else opening the recorder is.
+    if (!replying) claimOwnerDevice();
+  }, [replying]);
 
   // A finished or discarded session leaves the page in setup mode for the next recording.
   const phase = state?.phase;
@@ -161,6 +164,19 @@ function Setup() {
   const updateBubble = (patch: Partial<BubbleOptions>) => setPrefs((p) => ({ ...p, bubble: { ...p.bubble, ...patch } }));
   const fitsScreen = screenQuality();
   const [starting, setStarting] = useState(false);
+  const [params] = useSearchParams();
+  const replyToId = params.get('replyTo');
+  const [replyTarget, setReplyTarget] = useState<{ title: string; commentsEnabled: boolean } | 'missing' | null>(null);
+  const [nameDraft, setNameDraft] = useState(() => displayName() ?? '');
+  useEffect(() => {
+    if (!replyToId) return;
+    api.getVideo(replyToId).then(
+      (v) => setReplyTarget({ title: v.title, commentsEnabled: v.commentsEnabled }),
+      () => setReplyTarget('missing'),
+    );
+  }, [replyToId]);
+  const replyBlocked =
+    !!replyToId && (replyTarget === null || replyTarget === 'missing' || !replyTarget.commentsEnabled || !nameDraft.trim());
   const handedOver = useRef(false);
 
   const wantsCamera = mode !== 'screen' && cameraId !== 'none';
@@ -251,7 +267,7 @@ function Setup() {
   }, [micId, micAttempt, refreshDevices]);
 
   const cameraMissing = mode === 'camera' && !cameraStream;
-  const canStart = !starting && !cameraMissing;
+  const canStart = !starting && !cameraMissing && !replyBlocked;
 
   async function start() {
     setPickerMessage(null);
@@ -297,7 +313,11 @@ function Setup() {
       { ...bubble, visible: mode === 'screen_camera' && !!cameraStream, fullCamera: false },
       prefs.quality,
       prefs.countdown,
+      replyToId && replyTarget && replyTarget !== 'missing'
+        ? { videoId: replyToId, title: replyTarget.title, authorName: nameDraft.trim() }
+        : null,
     );
+    if (replyToId && nameDraft.trim() !== displayName()) setDisplayName(nameDraft.trim());
     if (mode === 'screen') cameraStream?.getTracks().forEach((t) => t.stop());
     setActiveSession(session);
     // Floating controls over other apps. Opening needs the click's user activation; when the
@@ -317,7 +337,7 @@ function Setup() {
     <div className="recorder">
       <section aria-labelledby="setup-title">
         <div className="page-head">
-          <h1 id="setup-title">New video</h1>
+          <h1 id="setup-title">{replyToId ? 'Video reply' : 'New video'}</h1>
           <button type="button" className="btn btn-ghost" onClick={() => navigate('/')}>
             Cancel
           </button>
@@ -350,6 +370,31 @@ function Setup() {
             </>
           )}
         </div>
+        {replyToId && (
+          <div className="banner is-info reply-banner" role="status" style={{ marginTop: 'var(--space-4)' }}>
+            {replyTarget === 'missing' ? (
+              <span>The video you are replying to isn't here any more.</span>
+            ) : replyTarget && !replyTarget.commentsEnabled ? (
+              <span>Comments are turned off on "{replyTarget.title}", so a reply can't be posted there.</span>
+            ) : (
+              <>
+                <span style={{ flex: 1 }}>
+                  When you stop, this recording is posted as a reply on "{replyTarget?.title ?? '…'}".
+                </span>
+                <label className="field" style={{ minWidth: '12rem' }}>
+                  <span className="field-label">Your name</span>
+                  <input
+                    className="input"
+                    value={nameDraft}
+                    maxLength={60}
+                    placeholder="Shown with the reply"
+                    onChange={(e) => setNameDraft(e.target.value)}
+                  />
+                </label>
+              </>
+            )}
+          </div>
+        )}
         {pickerMessage && (
           <div className="banner is-info" role="status" style={{ marginTop: 'var(--space-4)' }}>
             {pickerMessage}

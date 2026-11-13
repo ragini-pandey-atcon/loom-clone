@@ -72,21 +72,32 @@ def init_db() -> None:
         migrate(conn)
 
 
-# Columns added to `videos` after the first release. `create table if not exists` leaves an
-# existing table alone, so a database made before them gets each one added here, in place.
-_ADDED_VIDEO_COLUMNS = {
-    "folder_id": "folder_id text references folders (id) on delete set null",
-    "trim_start_ms": "trim_start_ms integer check (trim_start_ms is null or trim_start_ms >= 0)",
-    "trim_end_ms": "trim_end_ms integer check (trim_end_ms is null or trim_end_ms > 0)",
-    "uploaded": "uploaded integer not null default 0 check (uploaded in (0, 1))",
+# Columns added after the first release. `create table if not exists` leaves an existing table
+# alone, so a database made before them gets each one added here, in place.
+_ADDED_COLUMNS: dict[str, dict[str, str]] = {
+    "videos": {
+        "folder_id": "folder_id text references folders (id) on delete set null",
+        "trim_start_ms": "trim_start_ms integer check (trim_start_ms is null or trim_start_ms >= 0)",
+        "trim_end_ms": "trim_end_ms integer check (trim_end_ms is null or trim_end_ms > 0)",
+        "uploaded": "uploaded integer not null default 0 check (uploaded in (0, 1))",
+        "show_view_count": "show_view_count integer not null default 0 check (show_view_count in (0, 1))",
+        "downloads_enabled": "downloads_enabled integer not null default 0 check (downloads_enabled in (0, 1))",
+        "recommended_speed": (
+            "recommended_speed real check (recommended_speed is null or recommended_speed between 0.5 and 2)"
+        ),
+    },
+    "comments": {
+        "reply_video_id": "reply_video_id text references videos (id) on delete set null",
+    },
 }
 
 
 def migrate(conn: sqlite3.Connection) -> None:
-    have = {row["name"] for row in conn.execute("pragma table_info(videos)")}
-    for name, definition in _ADDED_VIDEO_COLUMNS.items():
-        if name not in have:
-            conn.execute(f"alter table videos add column {definition}")
+    for table, columns in _ADDED_COLUMNS.items():
+        have = {row["name"] for row in conn.execute(f"pragma table_info({table})")}
+        for name, definition in columns.items():
+            if name not in have:
+                conn.execute(f"alter table {table} add column {definition}")
     # Here, not in schema.sql: on an old database the column does not exist until the line above.
     conn.execute("create index if not exists videos_folder_idx on videos (folder_id, created_at)")
 

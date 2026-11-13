@@ -26,8 +26,34 @@ export interface Video {
   trimStartMs: number | null;
   trimEndMs: number | null;
   uploaded: boolean;
+  showViewCount: boolean;
+  downloadsEnabled: boolean;
+  /** Viewers start at this speed; null means normal. */
+  recommendedSpeed: number | null;
+  tags: string[];
   /** Only when the request named a viewer. */
   watchLater?: boolean;
+  following?: boolean;
+}
+
+export type NotificationKind = 'comment' | 'reply' | 'mention' | 'video_reply';
+
+export interface AppNotification {
+  id: string;
+  kind: NotificationKind;
+  videoId: string;
+  videoTitle: string;
+  commentId: string | null;
+  timestampMs: number | null;
+  actorName: string;
+  preview: string;
+  createdAt: string;
+  read: boolean;
+}
+
+export interface TagCount {
+  tag: string;
+  videoCount: number;
 }
 
 export interface Folder {
@@ -60,6 +86,8 @@ export interface Comment {
   deleted: boolean;
   timestampMs: number | null;
   createdAt: string;
+  /** A video reply: the video recorded in answer. */
+  replyVideoId: string | null;
 }
 
 export interface Reaction {
@@ -129,9 +157,10 @@ export const api = {
   claimOwnerDevice: (viewerId: string) => request<void>('/owner/devices', json('POST', { viewerId })),
 
   /** folder: a folder id, 'none' for videos in no folder, or leave out for all. */
-  listVideos: (opts: { q?: string; archived?: boolean; folder?: string } = {}) => {
+  listVideos: (opts: { q?: string; archived?: boolean; folder?: string; tag?: string } = {}) => {
     const params = new URLSearchParams();
     if (opts.q) params.set('q', opts.q);
+    if (opts.tag) params.set('tag', opts.tag);
     if (opts.archived) params.set('archived', '1');
     if (opts.folder) params.set('folder', opts.folder);
     const qs = params.toString();
@@ -151,8 +180,22 @@ export const api = {
       folderId: string | null;
       trimStartMs: number | null;
       trimEndMs: number | null;
+      showViewCount: boolean;
+      downloadsEnabled: boolean;
+      recommendedSpeed: number | null;
     }>,
   ) => request<Video>(`/videos/${id}`, json('PATCH', body)),
+  setTags: (id: string, tags: string[]) => request<Video>(`/videos/${id}/tags`, json('PUT', { tags })),
+  listTags: () => request<TagCount[]>('/tags'),
+  follow: (id: string, viewer: string) => request<void>(`/videos/${id}/follow`, json('PUT', { viewerId: viewer })),
+  unfollow: (id: string, viewer: string) =>
+    request<void>(`/videos/${id}/follow?viewerId=${encodeURIComponent(viewer)}`, { method: 'DELETE' }),
+  listPeople: (id: string) => request<string[]>(`/videos/${id}/people`),
+  listNotifications: (viewer: string) =>
+    request<AppNotification[]>(`/notifications?viewerId=${encodeURIComponent(viewer)}`),
+  unreadCount: (viewer: string) =>
+    request<{ count: number }>(`/notifications/unread?viewerId=${encodeURIComponent(viewer)}`),
+  markNotificationsRead: (viewer: string) => request<void>('/notifications/read', json('POST', { viewerId: viewer })),
   deleteVideo: (id: string) => request<void>(`/videos/${id}`, { method: 'DELETE' }),
   duplicateVideo: (id: string) => request<Video>(`/videos/${id}/duplicate`, { method: 'POST' }),
 
@@ -203,7 +246,14 @@ export const api = {
   listComments: (id: string) => request<Comment[]>(`/videos/${id}/comments`),
   addComment: (
     id: string,
-    body: { authorId: string; authorName: string; body: string; timestampMs?: number | null; parentId?: string | null },
+    body: {
+      authorId: string;
+      authorName: string;
+      body: string;
+      timestampMs?: number | null;
+      parentId?: string | null;
+      replyVideoId?: string | null;
+    },
   ) => request<Comment>(`/videos/${id}/comments`, json('POST', body)),
   deleteComment: (commentId: string, authorId: string) =>
     request<void>(`/comments/${commentId}?authorId=${encodeURIComponent(authorId)}`, { method: 'DELETE' }),
@@ -221,12 +271,14 @@ export const api = {
 };
 
 export const mediaUrl = (id: string) => `/api/videos/${id}/media`;
-export const downloadUrl = (id: string) => `/api/videos/${id}/media?download=1`;
+/** viewer: the asking browser's id; the API lets the owner, or anyone when the owner allowed it. */
+export const downloadUrl = (id: string, viewer: string) =>
+  `/api/videos/${id}/media?download=1&viewerId=${encodeURIComponent(viewer)}`;
 
 /** Starts a download of the whole file (a trim only applies to playback here). */
-export function downloadVideo(id: string) {
+export function downloadVideo(id: string, viewer: string) {
   const a = document.createElement('a');
-  a.href = downloadUrl(id);
+  a.href = downloadUrl(id, viewer);
   a.download = '';
   document.body.append(a);
   a.click();

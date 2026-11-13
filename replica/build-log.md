@@ -106,3 +106,27 @@ revert with the player stopping at the trim end, download name, duplicate, times
 later; folders end to end; floating controls pausing and stopping from their own window). A real
 layout bug was caught there (the Watch later title link covered its Remove button).
 Not done: MP4 conversion for downloads (no ffmpeg), middle cuts in trim.
+
+## 2026-11-13: settings, tags and collaboration batch
+
+- **Per-video settings tab** (Loom S14): comments, reactions, show view count to viewers, viewers
+  can download (enforced by the API, not just hidden), recommended playback speed, and a custom
+  thumbnail from an uploaded image or the current frame. Switches apply at once and saves run one
+  at a time; the e2e run caught two quick flips undoing each other before that.
+- **Theater mode**, remembered per browser.
+- **Tags**: up to 10 per video, case-insensitive; a tag bar filters the library across folders,
+  and search matches tags.
+- **Notifications** with a bell and unread count: comments, replies, @mentions and video replies,
+  one row per person with the most specific kind, never for your own comment. The owner's rows
+  go to every owner device. **Follow** a video; commenting follows it.
+- **@mentions**: suggestions while typing (keyboard and mouse), names with spaces, highlighted in
+  comments. Front end (`lib/mentions.ts`) and API (`mentioned_ids`) apply the same boundary rule.
+- **Video replies**: "Video reply" in the comment box opens the recorder; the reply is posted as a
+  comment with a video card only once it plays. Reply mode does not mark the viewer's browser as
+  the owner's.
+- **Hover preview** on library cards, in place of an animated GIF (a GIF needs ffmpeg).
+- Also fixed: length badges sat outside the thumbnail on Watch later rows (previous batch).
+
+Verified: 29 backend tests, 38 unit tests, typecheck, 13 e2e tests (2 new, with an owner and a
+viewer in separate browsers). Skipped with reasons: viewer quality selector (no transcoding), home
+feed (no workspace). Still to do: transcripts, captions and transcript search.

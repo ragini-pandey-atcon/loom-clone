@@ -20,6 +20,7 @@ import {
 import { Comments } from '../components/Comments';
 import {
   IconArchive,
+  IconBell,
   IconCheck,
   IconClock,
   IconCopy,
@@ -33,7 +34,9 @@ import {
   IconWrench,
 } from '../components/Icons';
 import { MoveDialog } from '../components/LibraryDialogs';
+import { TagEditor } from '../components/TagEditor';
 import { TrimEditor, type TrimRange } from '../components/TrimEditor';
+import { VideoSettings } from '../components/VideoSettings';
 import { Insights } from '../components/Insights';
 import { NamePrompt } from '../components/NamePrompt';
 import { Player, type PlayerHandle } from '../components/Player';
@@ -58,7 +61,24 @@ export function VideoPage() {
   const [loadError, setLoadError] = useState<'missing' | 'offline' | 'error' | null>(null);
   const [comments, setComments] = useState<Comment[]>([]);
   const [reactions, setReactions] = useState<Reaction[]>([]);
-  const [tab, setTab] = useState<'comments' | 'activity'>('comments');
+  const [people, setPeople] = useState<string[]>([]);
+  const [tab, setTab] = useState<'comments' | 'activity' | 'settings'>('comments');
+  const [theater, setTheater] = useState(() => {
+    try {
+      return localStorage.getItem('loom-clone.theater') === '1';
+    } catch {
+      return false;
+    }
+  });
+  const toggleTheater = () =>
+    setTheater((on) => {
+      try {
+        localStorage.setItem('loom-clone.theater', on ? '0' : '1');
+      } catch {
+        /* the choice just isn't remembered */
+      }
+      return !on;
+    });
   const [linkPending, setLinkPending] = useState(params.get('copy') === '1');
   const [nameOpen, setNameOpen] = useState(false);
   const [trimDraft, setTrimDraft] = useState<TrimRange | null>(null);
@@ -88,6 +108,7 @@ export function VideoPage() {
     const [c, r] = await Promise.all([api.listComments(id), api.listReactions(id)]).catch(() => [null, null]);
     if (c) setComments(c);
     if (r) setReactions(r);
+    api.listPeople(id).then(setPeople, () => {});
   }, [id]);
 
   useEffect(() => {
@@ -179,6 +200,20 @@ export function VideoPage() {
     });
   }, []);
 
+  async function toggleFollow() {
+    if (!video) return;
+    const on = !!video.following;
+    setVideo({ ...video, following: !on });
+    try {
+      if (on) await api.unfollow(video.id, viewerId());
+      else await api.follow(video.id, viewerId());
+      toast(on ? 'You will not hear about new comments' : 'You will be told about new comments');
+    } catch {
+      setVideo({ ...video, following: on });
+      toast('That did not save', 'error');
+    }
+  }
+
   async function toggleWatchLater() {
     if (!video) return;
     const saved = !!video.watchLater;
@@ -263,6 +298,18 @@ export function VideoPage() {
           </button>
         </div>
       )}
+      {ownSession && session?.replyTo && ownSession.replyPosted !== null && (
+        <div className={ownSession.replyPosted ? "banner is-info" : "banner is-danger"} role="status">
+          <span style={{ flex: 1 }}>
+            {ownSession.replyPosted
+              ? `Posted as a video reply on "${session.replyTo.title}".`
+              : `This video is saved, but it could not be posted as a reply on "${session.replyTo.title}".`}
+          </span>
+          <Link className="btn" to={`/v/${session.replyTo.videoId}`}>
+            Back to that video
+          </Link>
+        </div>
+      )}
       {video?.archivedAt && owner && (
         <div className="banner" role="status">
           <span style={{ flex: 1 }}>This video is archived. It is hidden from your library but the link still works.</span>
@@ -277,7 +324,7 @@ export function VideoPage() {
         </div>
       )}
 
-      <div className="watch">
+      <div className={theater ? 'watch is-theater' : 'watch'}>
         <div className="watch-main">
           {!video ? (
             <div className="player skeleton" aria-busy="true" aria-label="Loading video" />
@@ -289,6 +336,9 @@ export function VideoPage() {
               windowStartMs={(trimDraft ?? playWindow(video)).startMs}
               windowEndMs={trimDraft ? trimDraft.endMs : video.trimEndMs}
               initialMs={initialMs}
+              initialRate={owner ? undefined : (video.recommendedSpeed ?? undefined)}
+              theater={theater}
+              onToggleTheater={toggleTheater}
               comments={comments}
               reactions={video.reactionsEnabled ? reactions : []}
               onWatch={(delta, pos) => {
@@ -322,7 +372,7 @@ export function VideoPage() {
             <TitleRow
               video={video}
               owner={owner}
-              onChanged={(v) => setVideo({ ...v, watchLater: video.watchLater })}
+              onChanged={(v) => setVideo({ ...v, watchLater: video.watchLater, following: video.following })}
               onDeleted={() => navigate('/')}
               currentMs={() => player.current?.currentMs() ?? 0}
               onTrim={() => {
@@ -353,10 +403,24 @@ export function VideoPage() {
               ) : (
                 <p className="muted">Reactions are turned off for this video.</p>
               )}
-              <button type="button" className="btn" aria-pressed={!!video.watchLater} onClick={() => void toggleWatchLater()}>
-                {video.watchLater ? <IconCheck /> : <IconClock />}
-                {video.watchLater ? 'Saved for later' : 'Watch later'}
-              </button>
+              <span className="chip-row">
+                {!owner && (
+                  <button type="button" className="btn" aria-pressed={!!video.following} onClick={() => void toggleFollow()}>
+                    {video.following ? <IconCheck /> : <IconBell />}
+                    {video.following ? 'Following' : 'Follow'}
+                  </button>
+                )}
+                {!owner && video.downloadsEnabled && (
+                  <button type="button" className="btn" onClick={() => downloadVideo(video.id, viewerId())}>
+                    <IconDownload />
+                    Download
+                  </button>
+                )}
+                <button type="button" className="btn" aria-pressed={!!video.watchLater} onClick={() => void toggleWatchLater()}>
+                  {video.watchLater ? <IconCheck /> : <IconClock />}
+                  {video.watchLater ? 'Saved for later' : 'Watch later'}
+                </button>
+              </span>
             </div>
           )}
         </div>
@@ -371,21 +435,37 @@ export function VideoPage() {
                 Activity
               </button>
             )}
+            {owner && (
+              <button type="button" role="tab" aria-selected={tab === 'settings'} onClick={() => setTab('settings')}>
+                Settings
+              </button>
+            )}
           </div>
           <div className="tab-panel" role="tabpanel">
-            {tab === 'activity' && owner && video ? (
-              <Insights video={video} reactions={reactions} onSeek={(ms) => player.current?.seek(ms)} onVideoChanged={setVideo} />
+            {tab === 'settings' && owner && video ? (
+              <VideoSettings
+                video={video}
+                onVideoChanged={(v) => setVideo({ ...v, watchLater: video.watchLater, following: video.following })}
+                grabFrame={() => player.current?.snapshot() ?? Promise.resolve(null)}
+              />
+            ) : tab === 'activity' && owner && video ? (
+              <Insights video={video} reactions={reactions} onSeek={(ms) => player.current?.seek(ms)} />
             ) : video?.status === 'ready' ? (
               <Comments
                 videoId={id}
                 offsetMs={(trimDraft ?? playWindow(video)).startMs}
+                people={people}
                 comments={comments}
                 enabled={video.commentsEnabled}
                 ownerDevice={owner}
                 currentMs={() => player.current?.currentMs() ?? 0}
                 onSeek={(ms) => player.current?.seek(ms, true)}
                 requireName={requireName}
-                onChanged={() => void loadSocial()}
+                onChanged={() => {
+                  void loadSocial();
+                  // Commenting follows the video on the server; show it here too.
+                  void loadVideo();
+                }}
               />
             ) : (
               <p className="muted">Comments open once the video is ready.</p>
@@ -642,7 +722,7 @@ function TitleRow({
                     { label: video.trimStartMs !== null ? 'Edit trim' : 'Trim', icon: <IconScissors />, onSelect: onTrim },
                     { label: 'Move to folder', icon: <IconMove />, onSelect: onMove },
                     { label: 'Duplicate', icon: <IconCopy />, onSelect: () => void duplicate() },
-                    { label: 'Download', icon: <IconDownload />, onSelect: () => downloadVideo(video.id) },
+                    { label: 'Download', icon: <IconDownload />, onSelect: () => downloadVideo(video.id, viewerId()) },
                   ]
                 : []),
               video.archivedAt
@@ -669,10 +749,12 @@ function TitleRow({
         {playedDurationMs(video) !== null && <span>{formatClock(playedDurationMs(video))}</span>}
         {owner && video.trimStartMs !== null && <span>Trimmed from {formatClock(video.durationMs)}</span>}
         {owner && video.uploaded && <span>Uploaded</span>}
-        {owner && <span>{plural(video.viewCount, 'view')}</span>}
+        {(owner || video.showViewCount) && <span>{plural(video.viewCount, 'view')}</span>}
         {owner && video.status === 'ready' && <span>{formatBytes(video.sizeBytes)}</span>}
         {owner && video.status === 'ready' && !video.seekable && <span>Seeking may be slow: the file could not be indexed.</span>}
       </div>
+
+      <TagEditor video={video} owner={owner} onChanged={onChanged} />
 
       <ConfirmDialog
         open={confirmDelete}

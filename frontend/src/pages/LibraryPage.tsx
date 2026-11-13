@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { Link, useNavigate, useParams } from 'react-router';
+import { Link, useNavigate, useParams, useSearchParams } from 'react-router';
 
 import {
   api,
@@ -7,7 +7,10 @@ import {
   downloadVideo,
   type Folder,
   isOffline,
+  mediaUrl,
   playedDurationMs,
+  playWindow,
+  type TagCount,
   shareUrl,
   thumbnailUrl,
   uploadVideo,
@@ -28,15 +31,17 @@ import {
   IconRecord,
   IconRestore,
   IconSearch,
+  IconTag,
   IconTrash,
   IconUpload,
   IconVideo,
   IconWrench,
+  IconX,
 } from '../components/Icons';
 import { MoveDialog, TextDialog } from '../components/LibraryDialogs';
 import { ConfirmDialog, copyText, Menu, type MenuItem, toast } from '../components/ui';
 import { formatClock, formatWhen, plural } from '../lib/format';
-import { claimOwnerDevice } from '../lib/identity';
+import { claimOwnerDevice, viewerId } from '../lib/identity';
 import { probeVideo, titleFromFileName, UPLOAD_ACCEPT, uploadMimeType } from '../lib/probeVideo';
 import { recoverVideo } from '../lib/recover';
 import { activeSession, isBusy } from '../recorder/session';
@@ -52,6 +57,9 @@ type Dialog =
 export function LibraryPage({ archived }: { archived: boolean }) {
   const { folderId } = useParams();
   const navigate = useNavigate();
+  const [params, setParams] = useSearchParams();
+  const tag = params.get('tag') ?? '';
+  const [tags, setTags] = useState<TagCount[]>([]);
   const [query, setQuery] = useState('');
   const [videos, setVideos] = useState<Video[] | null>(null);
   const [folders, setFolders] = useState<Folder[]>([]);
@@ -61,7 +69,7 @@ export function LibraryPage({ archived }: { archived: boolean }) {
   const [moving, setMoving] = useState<Video | null>(null);
   const [busy, setBusy] = useState(false);
   const requestId = useRef(0);
-  const atRoot = !archived && !folderId;
+  const atRoot = !archived && !folderId && !tag;
 
   useEffect(() => {
     claimOwnerDevice();
@@ -72,22 +80,25 @@ export function LibraryPage({ archived }: { archived: boolean }) {
     try {
       const q = query.trim();
       // At the top level, videos in folders show inside their folder; a search looks everywhere.
+      // A tag filter, like a search, looks in every folder.
       const scope = folderId ?? (atRoot && !q ? 'none' : undefined);
-      const [list, allFolders, current] = await Promise.all([
-        api.listVideos({ q, archived, folder: scope }),
+      const [list, allFolders, current, allTags] = await Promise.all([
+        api.listVideos({ q, archived, folder: scope, tag: tag || undefined }),
         archived ? Promise.resolve([] as Folder[]) : api.listFolders(),
         folderId ? api.getFolder(folderId) : Promise.resolve(null),
+        archived || folderId ? Promise.resolve([] as TagCount[]) : api.listTags(),
       ]);
       if (mine !== requestId.current) return;
       setVideos(list);
       setFolders(allFolders);
       setFolder(current);
+      setTags(allTags);
       setError(null);
     } catch (e) {
       if (mine !== requestId.current) return;
       setError(e instanceof ApiError && e.status === 404 ? 'no-folder' : isOffline(e) ? 'offline' : 'error');
     }
-  }, [query, archived, folderId, atRoot]);
+  }, [query, archived, folderId, atRoot, tag]);
 
   useEffect(() => {
     const timer = setTimeout(() => void load(), query ? 200 : 0);
@@ -97,7 +108,14 @@ export function LibraryPage({ archived }: { archived: boolean }) {
   useEffect(() => {
     setVideos(null);
     setQuery('');
-  }, [archived, folderId]);
+  }, [archived, folderId, tag]);
+
+  const setTag = (next: string | null) =>
+    setParams((prev) => {
+      if (next) prev.set('tag', next);
+      else prev.delete('tag');
+      return prev;
+    });
 
   useEffect(() => {
     window.addEventListener('focus', load);
@@ -156,7 +174,7 @@ export function LibraryPage({ archived }: { archived: boolean }) {
     if (ready) {
       items.push(
         { label: 'Duplicate', icon: <IconCopy />, onSelect: () => void duplicate(video) },
-        { label: 'Download', icon: <IconDownload />, onSelect: () => downloadVideo(video.id) },
+        { label: 'Download', icon: <IconDownload />, onSelect: () => downloadVideo(video.id, viewerId()) },
       );
     }
     items.push(
@@ -202,6 +220,14 @@ export function LibraryPage({ archived }: { archived: boolean }) {
                 ]}
               />
             )}
+          </div>
+        ) : tag ? (
+          <div className="crumbs">
+            <Link to="/">My videos</Link>
+            <span aria-hidden="true">/</span>
+            <h1>
+              <IconTag width="0.8em" height="0.8em" /> {tag}
+            </h1>
           </div>
         ) : (
           <h1>{archived ? 'Archive' : 'My videos'}</h1>
@@ -255,6 +281,23 @@ export function LibraryPage({ archived }: { archived: boolean }) {
       {error === 'error' && (
         <div className="banner is-danger" role="alert">
           The library could not be loaded.
+        </div>
+      )}
+
+      {!archived && !folderId && tags.length > 0 && (
+        <div className="tag-bar" role="group" aria-label="Filter by tag">
+          <IconTag className="tag-row-icon" />
+          {tags.map((t) =>
+            t.tag.toLowerCase() === tag.toLowerCase() ? (
+              <button key={t.tag} type="button" className="tag is-active" aria-pressed="true" onClick={() => setTag(null)}>
+                {t.tag} <IconX />
+              </button>
+            ) : (
+              <button key={t.tag} type="button" className="tag" aria-pressed="false" onClick={() => setTag(t.tag)}>
+                {t.tag} <span className="muted">{t.videoCount}</span>
+              </button>
+            ),
+          )}
         </div>
       )}
 
@@ -518,11 +561,35 @@ function VideoCard({
   folderName?: string;
 }) {
   const [thumbFailed, setThumbFailed] = useState(false);
+  const [preview, setPreview] = useState(false);
+  const hoverTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const unfinished = video.status === 'recording';
   const length = playedDurationMs(video);
+  // A moving preview on hover, where Loom offers an animated GIF thumbnail.
+  const startPreview = () => {
+    if (video.status !== 'ready' || hoverTimer.current) return;
+    hoverTimer.current = setTimeout(() => setPreview(true), 400);
+  };
+  const stopPreview = () => {
+    if (hoverTimer.current) clearTimeout(hoverTimer.current);
+    hoverTimer.current = null;
+    setPreview(false);
+  };
+  useEffect(() => stopPreview, []);
   return (
-    <article className="card">
+    <article className="card" onPointerEnter={startPreview} onPointerLeave={stopPreview}>
       <div className="card-thumb">
+        {preview && (
+          <video
+            className="card-preview"
+            src={`${mediaUrl(video.id)}#t=${playWindow(video).startMs / 1000}`}
+            muted
+            autoPlay
+            playsInline
+            loop
+            aria-hidden="true"
+          />
+        )}
         {video.hasThumbnail && !thumbFailed ? (
           <img src={thumbnailUrl(video)} alt="" loading="lazy" onError={() => setThumbFailed(true)} />
         ) : (

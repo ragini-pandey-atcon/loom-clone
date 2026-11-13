@@ -448,7 +448,9 @@ a {
   line-height: 1.6;
 }
 
-.card-thumb .badge {
+.card-thumb .badge,
+.later-thumb .badge,
+.reply-card-thumb .badge {
   position: absolute;
   right: var(--space-2);
   bottom: var(--space-2);
@@ -1881,6 +1883,329 @@ a {
 
 .trim-handle.is-dragging {
   background: var(--c-accent-hover);
+}
+
+/* ---- theater mode ----------------------------------------------------------------------- */
+
+.watch.is-theater {
+  grid-template-columns: minmax(0, 1fr);
+}
+
+.watch.is-theater .side {
+  position: static;
+  max-height: none;
+}
+
+/* ---- per-video settings --------------------------------------------------------------- */
+
+.settings {
+  display: grid;
+  gap: var(--space-3);
+}
+
+.thumb-setting {
+  display: grid;
+  grid-template-columns: 9rem minmax(0, 1fr);
+  align-items: start;
+  gap: var(--space-3);
+}
+
+.thumb-preview {
+  display: grid;
+  place-items: center;
+  aspect-ratio: 16 / 9;
+  overflow: hidden;
+  border-radius: var(--radius-sm);
+  background: var(--c-player);
+  color: var(--c-player-text);
+}
+
+.thumb-preview img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.thumb-preview svg {
+  width: var(--space-8);
+  height: var(--space-8);
+}
+
+/* ---- tags ------------------------------------------------------------------------------- */
+
+.tag-row,
+.tag-bar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2);
+  margin-top: var(--space-2);
+}
+
+.tag-bar {
+  margin: 0 0 var(--space-5);
+}
+
+.tag-row-icon {
+  width: var(--icon);
+  height: var(--icon);
+  color: var(--c-text-3);
+}
+
+.tag {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+  min-height: var(--space-7, 1.75rem);
+  padding: 0 var(--space-3);
+  border: var(--border-width) solid var(--c-border);
+  border-radius: var(--radius-pill);
+  background: var(--c-surface);
+  color: var(--c-text-2);
+  font-size: var(--text-sm);
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.tag a {
+  color: inherit;
+  text-decoration: none;
+}
+
+.tag a:hover {
+  text-decoration: underline;
+}
+
+.tag button {
+  display: inline-grid;
+  place-items: center;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--c-text-3);
+  cursor: pointer;
+}
+
+.tag svg {
+  width: 0.9em;
+  height: 0.9em;
+}
+
+.tag.is-active {
+  border-color: var(--c-accent);
+  background: var(--c-accent-soft);
+  color: var(--c-accent);
+}
+
+.tag-input {
+  width: 10rem;
+  min-height: var(--space-7, 1.75rem);
+  padding: 0 var(--space-3);
+  border-radius: var(--radius-pill);
+  font-size: var(--text-sm);
+}
+
+/* ---- mentions and video replies --------------------------------------------------------- */
+
+.composer {
+  position: relative;
+}
+
+.mention-list {
+  position: absolute;
+  z-index: 20;
+  left: 0;
+  right: 0;
+  top: calc(100% - var(--space-10));
+  margin: 0;
+  padding: var(--space-1);
+  list-style: none;
+  border: var(--border-width) solid var(--c-border);
+  border-radius: var(--radius-md);
+  background: var(--c-surface);
+  box-shadow: var(--shadow-lg);
+}
+
+.mention-list li {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-2) var(--space-3);
+  border-radius: var(--radius-sm);
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.mention-list li[aria-selected='true'],
+.mention-list li:hover {
+  background: var(--c-surface-2);
+}
+
+.mention-list .avatar {
+  width: var(--space-6);
+  height: var(--space-6);
+  font-size: var(--text-xs);
+}
+
+mark.mention {
+  padding: 0 2px;
+  border-radius: 4px;
+  background: var(--c-accent-soft);
+  color: var(--c-accent);
+  font-weight: 600;
+}
+
+.reply-card {
+  display: grid;
+  grid-template-columns: 7rem minmax(0, 1fr);
+  align-items: center;
+  gap: var(--space-3);
+  margin-top: var(--space-2);
+  padding: var(--space-2);
+  border: var(--border-width) solid var(--c-border);
+  border-radius: var(--radius-md);
+  color: var(--c-text);
+  text-decoration: none;
+}
+
+.reply-card:hover {
+  border-color: var(--c-accent);
+}
+
+.reply-card > span:last-child {
+  display: grid;
+  min-width: 0;
+}
+
+.reply-card strong {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.reply-card-thumb {
+  position: relative;
+  display: grid;
+  place-items: center;
+  aspect-ratio: 16 / 9;
+  overflow: hidden;
+  border-radius: var(--radius-sm);
+  background: var(--c-player);
+  color: var(--c-player-text);
+}
+
+.reply-card-thumb img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.reply-card-thumb svg {
+  width: var(--space-6);
+  height: var(--space-6);
+}
+
+.reply-banner {
+  flex-wrap: wrap;
+  align-items: end;
+}
+
+/* ---- notifications ---------------------------------------------------------------------- */
+
+.bell {
+  position: relative;
+  color: var(--c-text-2);
+}
+
+.bell-count {
+  position: absolute;
+  top: 0;
+  right: 0;
+  min-width: 1.15rem;
+  height: 1.15rem;
+  padding: 0 4px;
+  border-radius: var(--radius-pill);
+  background: var(--c-record);
+  color: #fff;
+  font-size: 0.7rem;
+  font-weight: 700;
+  line-height: 1.15rem;
+  text-align: center;
+}
+
+.notice-list {
+  display: grid;
+  gap: var(--space-2);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.notice-row {
+  position: relative;
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: start;
+  gap: var(--space-3);
+  padding: var(--space-3) var(--space-4);
+  border: var(--border-width) solid var(--c-border);
+  border-radius: var(--radius-md);
+  background: var(--c-surface);
+}
+
+.notice-row.is-unread {
+  border-color: var(--c-accent);
+  background: var(--c-accent-soft);
+}
+
+.notice-text {
+  display: grid;
+  gap: var(--space-1);
+  min-width: 0;
+}
+
+.notice-link {
+  color: var(--c-text);
+  text-decoration: none;
+}
+
+/* The whole row opens the video. */
+.notice-link::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+}
+
+.notice-preview {
+  margin: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--c-text-2);
+}
+
+.unread-dot {
+  width: var(--space-2);
+  height: var(--space-2);
+  margin-top: var(--space-2);
+  border-radius: 50%;
+  background: var(--c-accent);
+}
+
+/* ---- library hover preview ---------------------------------------------------------------- */
+
+.card-preview {
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  pointer-events: none;
+}
+
+.card-thumb .badge {
+  z-index: 2;
 }
 
 /* ---- floating controls (Document Picture-in-Picture window) ------------------------------ */

@@ -2,7 +2,7 @@ import { type Ref, useCallback, useEffect, useImperativeHandle, useRef, useState
 
 import type { Comment, Reaction } from '../api/client';
 import { formatClock } from '../lib/format';
-import { IconFullscreen, IconMute, IconPause, IconPlay, IconVolume } from './Icons';
+import { IconFullscreen, IconMute, IconPause, IconPlay, IconTheater, IconVolume } from './Icons';
 import { Menu } from './ui';
 
 export interface PlayerHandle {
@@ -10,6 +10,8 @@ export interface PlayerHandle {
   currentMs(): number;
   /** Shows an emoji floating up right now (your own reaction). */
   float(emoji: string, name: string): void;
+  /** A JPEG of the frame on screen now (for a custom thumbnail). */
+  snapshot(): Promise<Blob | null>;
 }
 
 interface Floater {
@@ -33,6 +35,9 @@ export function Player({
   windowStartMs = 0,
   windowEndMs = null,
   initialMs,
+  initialRate,
+  theater = false,
+  onToggleTheater,
 }: {
   ref?: Ref<PlayerHandle>;
   src: string;
@@ -50,6 +55,10 @@ export function Player({
   windowEndMs?: number | null;
   /** Start here (file time), for links shared at a timestamp. */
   initialMs?: number;
+  /** The owner's recommended speed: playback starts at it. */
+  initialRate?: number;
+  theater?: boolean;
+  onToggleTheater?: () => void;
 }) {
   const root = useRef<HTMLDivElement>(null);
   const video = useRef<HTMLVideoElement>(null);
@@ -133,6 +142,17 @@ export function Player({
       seek,
       currentMs: () => (video.current?.currentTime ?? 0) * 1000,
       float: addFloater,
+      snapshot: async () => {
+        const el = video.current;
+        if (!el || !el.videoWidth) return null;
+        const w = Math.min(1280, el.videoWidth);
+        const h = Math.round((el.videoHeight * w) / el.videoWidth);
+        const canvas = document.createElement('canvas');
+        canvas.width = w;
+        canvas.height = h;
+        canvas.getContext('2d')!.drawImage(el, 0, 0, w, h);
+        return new Promise<Blob | null>((resolve) => canvas.toBlob(resolve, 'image/jpeg', 0.86));
+      },
     }),
     [seek, addFloater],
   );
@@ -188,6 +208,7 @@ export function Player({
     readDuration();
     if (initialDone.current) return;
     initialDone.current = true;
+    if (initialRate && video.current) video.current.playbackRate = initialRate;
     const at = initialMs ?? startMs;
     if (at > 0) seek(at);
   }
@@ -428,6 +449,18 @@ export function Player({
               },
             }))}
           />
+          {onToggleTheater && (
+            <button
+              type="button"
+              className="icon-btn"
+              onClick={onToggleTheater}
+              aria-label={theater ? 'Default view' : 'Theater mode'}
+              aria-pressed={theater}
+              title={theater ? 'Default view' : 'Theater mode'}
+            >
+              <IconTheater />
+            </button>
+          )}
           <button type="button" className="icon-btn" onClick={toggleFullscreen} aria-label="Full screen">
             <IconFullscreen />
           </button>

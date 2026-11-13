@@ -7,6 +7,7 @@
 import { useSyncExternalStore } from 'react';
 
 import { api, ApiError, type SourceMode } from '../api/client';
+import { viewerId } from '../lib/identity';
 import { fixWebm } from '../lib/webmFix';
 import type { BubbleOptions } from './bubble';
 import { type Composite, createComposite } from './compositor';
@@ -37,6 +38,8 @@ export interface SessionState {
   endedByBrowser: boolean;
   /** Stop was pressed in the floating controls; the recorder page opens the video page. */
   stoppedOutside: { linkCopied: boolean } | null;
+  /** A video reply: null until finished, then whether it was posted on the original video. */
+  replyPosted: boolean | null;
   previewStream: MediaStream | null;
 }
 
@@ -48,6 +51,13 @@ export interface Streams {
 
 const COUNTDOWN_SECONDS = 3;
 const TIMESLICE_MS = 1000;
+
+/** Recording in answer to another video (Loom: Record a video reply). */
+export interface ReplyTarget {
+  videoId: string;
+  title: string;
+  authorName: string;
+}
 
 function defaultTitle(): string {
   const when = new Intl.DateTimeFormat(undefined, { dateStyle: 'medium', timeStyle: 'short' }).format(new Date());
@@ -66,6 +76,7 @@ export class RecordingSession {
     error: null,
     endedByBrowser: false,
     stoppedOutside: null,
+    replyPosted: null,
     previewStream: null,
   };
   private listeners = new Set<() => void>();
@@ -88,6 +99,7 @@ export class RecordingSession {
     readonly bubble: BubbleOptions,
     readonly quality: Quality,
     private readonly useCountdown: boolean,
+    readonly replyTo: ReplyTarget | null = null,
   ) {
     // The browser's own "Stop sharing" bar ends the screen track. Finish the take cleanly.
     streams.display?.getVideoTracks()[0]?.addEventListener('ended', () => {
@@ -189,7 +201,8 @@ export class RecordingSession {
   /** Starts a take: the video row (and so the link) exists from the first second. */
   async beginTake(): Promise<void> {
     if (!this.recordStream || !this.composite) throw new Error('Session not prepared');
-    const video = await api.createVideo({ title: defaultTitle(), sourceMode: this.mode, mimeType: this.mimeType });
+    const title = this.replyTo ? `Reply to ${this.replyTo.title}`.slice(0, 200) : defaultTitle();
+    const video = await api.createVideo({ title, sourceMode: this.mode, mimeType: this.mimeType });
     const uploader = new ChunkUploader(video.id, (progress) => this.set({ progress }));
     const recorder = new MediaRecorder(this.recordStream, {
       mimeType: this.mimeType,
@@ -296,6 +309,18 @@ export class RecordingSession {
         await api.finalize(videoId, header, query);
       }
       if (this.thumbnail) await api.putThumbnail(videoId, this.thumbnail).catch(() => {});
+      if (this.replyTo && this.state.replyPosted === null) {
+        // Posted only once the reply plays, so nobody follows a link to a half-uploaded video.
+        const posted = await api
+          .addComment(this.replyTo.videoId, {
+            authorId: viewerId(),
+            authorName: this.replyTo.authorName,
+            body: 'Recorded a video reply',
+            replyVideoId: videoId,
+          })
+          .then(() => true, () => false);
+        this.set({ replyPosted: posted });
+      }
       this.set({ phase: 'done' });
     } catch (error) {
       this.set({

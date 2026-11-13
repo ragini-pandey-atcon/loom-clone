@@ -1,9 +1,15 @@
-import { createContext, useContext, useState } from 'react';
+import { createContext, useContext, useEffect, useRef, useState } from 'react';
+import { Link } from 'react-router';
 
-import { api, type Comment } from '../api/client';
+import { api, type Comment, playedDurationMs, thumbnailUrl, type Video } from '../api/client';
 import { formatClock, formatWhen } from '../lib/format';
 import { viewerId } from '../lib/identity';
+import { insertMention, mentionQuery, splitMentions, suggest } from '../lib/mentions';
+import { IconReply, IconVideo } from './Icons';
 import { Avatar, ConfirmDialog, toast } from './ui';
+
+/** Names that can be @mentioned on this video. */
+const People = createContext<string[]>([]);
 
 /** Trim start (file time): comment times show from the trimmed 0:00, like the player clock. */
 const ClockOffset = createContext(0);
@@ -15,6 +21,8 @@ const useShown = () => {
 interface Props {
   /** Trim start, so the times shown match the player. */
   offsetMs?: number;
+  /** Everyone who took part on this video, for @mentions. */
+  people?: string[];
   videoId: string;
   comments: Comment[];
   enabled: boolean;
@@ -50,6 +58,26 @@ function Composer({
   const [sending, setSending] = useState(false);
   const isReply = parentId !== null;
   const shown = useShown();
+  const people = useContext(People);
+  const area = useRef<HTMLTextAreaElement>(null);
+  const [caret, setCaret] = useState(0);
+  const [pick, setPick] = useState(0);
+  const [dismissed, setDismissed] = useState<number | null>(null);
+  const query = mentionQuery(body, caret);
+  const options = query && dismissed !== query.start ? suggest(people, query.query) : [];
+  const open = options.length > 0;
+  useEffect(() => setPick(0), [query?.query]);
+
+  function choose(name: string) {
+    if (!query) return;
+    const next = insertMention(body, query.start, caret, name);
+    setBody(next.text);
+    setCaret(next.caret);
+    requestAnimationFrame(() => {
+      area.current?.focus();
+      area.current?.setSelectionRange(next.caret, next.caret);
+    });
+  }
 
   async function send() {
     const text = body.trim();
@@ -87,8 +115,13 @@ function Composer({
         {isReply ? 'Reply' : 'Comment'}
       </label>
       <textarea
+        ref={area}
         id={`composer-${parentId ?? 'top'}`}
         className="textarea"
+        role="combobox"
+        aria-expanded={open}
+        aria-autocomplete="list"
+        aria-controls={open ? `mentions-${parentId ?? 'top'}` : undefined}
         placeholder={isReply ? 'Write a reply' : 'Add a comment at this moment'}
         value={body}
         maxLength={4000}
@@ -97,8 +130,30 @@ function Composer({
           // Pin the moment when the person started writing, not when they press send.
           if (!isReply && stampMs === null) setStampMs(currentMs());
         }}
-        onChange={(e) => setBody(e.target.value)}
+        onChange={(e) => {
+          setBody(e.target.value);
+          setCaret(e.target.selectionStart);
+          setDismissed(null);
+        }}
+        onSelect={(e) => setCaret(e.currentTarget.selectionStart)}
         onKeyDown={(e) => {
+          if (open) {
+            if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
+              e.preventDefault();
+              setPick((i) => (i + (e.key === 'ArrowDown' ? 1 : options.length - 1)) % options.length);
+              return;
+            }
+            if (e.key === 'Enter' || e.key === 'Tab') {
+              e.preventDefault();
+              choose(options[pick]);
+              return;
+            }
+            if (e.key === 'Escape') {
+              e.preventDefault();
+              setDismissed(query!.start);
+              return;
+            }
+          }
           if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) {
             e.preventDefault();
             void send();
@@ -106,6 +161,24 @@ function Composer({
           if (e.key === 'Escape' && onCancel) onCancel();
         }}
       />
+      {open && (
+        <ul className="mention-list" id={`mentions-${parentId ?? 'top'}`} role="listbox" aria-label="People to mention">
+          {options.map((name, i) => (
+            <li
+              key={name}
+              role="option"
+              aria-selected={i === pick}
+              onPointerDown={(e) => {
+                e.preventDefault();
+                choose(name);
+              }}
+            >
+              <Avatar name={name} seed={name} />
+              {name}
+            </li>
+          ))}
+        </ul>
+      )}
       <div className="composer-actions">
         {!isReply ? (
           <button
@@ -121,6 +194,12 @@ function Composer({
           <span />
         )}
         <span className="chip-row">
+          {!isReply && (
+            <Link className="btn btn-ghost" to={`/record?replyTo=${videoId}`} title="Answer with a recording of your own">
+              <IconReply />
+              Video reply
+            </Link>
+          )}
           {onCancel && (
             <button type="button" className="btn btn-ghost" onClick={onCancel}>
               Cancel
@@ -132,6 +211,52 @@ function Composer({
         </span>
       </div>
     </form>
+  );
+}
+
+function CommentText({ body }: { body: string }) {
+  const people = useContext(People);
+  return (
+    <>
+      {splitMentions(body, people).map((s, i) =>
+        s.mention ? (
+          <mark key={i} className="mention">
+            {s.text}
+          </mark>
+        ) : (
+          s.text
+        ),
+      )}
+    </>
+  );
+}
+
+/** The recording someone made in answer, as a small card linking to it. */
+function VideoReplyCard({ id }: { id: string }) {
+  const [video, setVideo] = useState<Video | null | 'gone'>(null);
+  useEffect(() => {
+    let cancelled = false;
+    api
+      .getVideo(id)
+      .then((v) => !cancelled && setVideo(v))
+      .catch(() => !cancelled && setVideo('gone'));
+    return () => {
+      cancelled = true;
+    };
+  }, [id]);
+  if (video === 'gone') return null;
+  const length = video ? playedDurationMs(video) : null;
+  return (
+    <Link className="reply-card" to={`/v/${id}`}>
+      <span className="reply-card-thumb">
+        {video && video.hasThumbnail ? <img src={thumbnailUrl(video)} alt="" /> : <IconVideo />}
+        {length !== null && <span className="badge">{formatClock(length)}</span>}
+      </span>
+      <span>
+        <span className="muted">Video reply</span>
+        <strong>{video ? video.title : '…'}</strong>
+      </span>
+    </Link>
   );
 }
 
@@ -168,7 +293,12 @@ function CommentView({
         {comment.deleted ? (
           <p className="comment-body is-deleted">Comment deleted</p>
         ) : (
-          <p className="comment-body">{comment.body}</p>
+          <>
+            <p className="comment-body">
+              <CommentText body={comment.body} />
+            </p>
+            {comment.replyVideoId && <VideoReplyCard id={comment.replyVideoId} />}
+          </>
         )}
         {!comment.deleted && (
           <div className="comment-actions">
@@ -192,7 +322,9 @@ function CommentView({
 export function Comments(props: Props) {
   return (
     <ClockOffset.Provider value={props.offsetMs ?? 0}>
-      <CommentsInner {...props} />
+      <People.Provider value={props.people ?? []}>
+        <CommentsInner {...props} />
+      </People.Provider>
     </ClockOffset.Provider>
   );
 }

@@ -126,7 +126,8 @@ def test_upload_rejects_wrong_files_and_leaves_nothing(client: TestClient, tmp_p
 
 def test_download_names_the_file(client: TestClient) -> None:
     video = ready_video(client, 'Q3: plan / "draft"?')
-    res = client.get(f"/api/videos/{video['id']}/media", params={"download": 1})
+    client.post("/api/owner/devices", json={"viewerId": "owner-00000000001"})
+    res = client.get(f"/api/videos/{video['id']}/media", params={"download": 1, "viewerId": "owner-00000000001"})
     assert res.status_code == 200
     assert res.headers["content-disposition"].startswith("attachment")
     # RFC 5987 form, percent-encoded: browsers decode it back to the plain name.

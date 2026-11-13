@@ -78,6 +78,36 @@ export const IconPopOut = (p: IconProps) => (
     <rect x="12" y="11" width="7" height="6" rx="1" fill="currentColor" stroke="none" />
   </Icon>
 );
+export const IconBell = (p: IconProps) => (
+  <Icon {...p}>
+    <path d="M6 16V11a6 6 0 0 1 12 0v5l1.5 2h-15z" />
+    <path d="M10 20a2 2 0 0 0 4 0" />
+  </Icon>
+);
+export const IconTheater = (p: IconProps) => (
+  <Icon {...p}>
+    <rect x="2.5" y="6" width="19" height="12" rx="2" />
+  </Icon>
+);
+export const IconTag = (p: IconProps) => (
+  <Icon {...p}>
+    <path d="M3 12V4h8l10 10-8 8z" />
+    <circle cx="7.5" cy="8.5" r="1.5" fill="currentColor" stroke="none" />
+  </Icon>
+);
+export const IconImage = (p: IconProps) => (
+  <Icon {...p}>
+    <rect x="3" y="4" width="18" height="16" rx="2" />
+    <circle cx="9" cy="10" r="2" />
+    <path d="m21 16-5-5-9 9" />
+  </Icon>
+);
+export const IconReply = (p: IconProps) => (
+  <Icon {...p}>
+    <rect x="3" y="6" width="13" height="12" rx="2" />
+    <path d="m16 10 5-3v10l-5-3z" />
+  </Icon>
+);
 export const IconPlay = (p: IconProps) => (
   <Icon {...p}>
     <path d="M7 4.5v15l12-7.5z" fill="currentColor" stroke="none" />

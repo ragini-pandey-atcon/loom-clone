@@ -30,6 +30,10 @@ MAX_UPLOAD_BYTES = 4 * 1024 * 1024 * 1024
 UPLOAD_TYPES = {"video/webm": "webm", "video/mp4": "mp4", "video/quicktime": "mov"}
 MP4_BOXES = (b"ftyp", b"moov", b"mdat", b"wide", b"free", b"skip")
 MIN_TRIM_MS = 500
+SPEEDS = (0.5, 0.75, 1.0, 1.25, 1.5, 1.75, 2.0)
+MAX_TAGS = 10
+NOTIFY_PRIORITY = {"comment": 0, "video_reply": 1, "reply": 2, "mention": 3}
+OWNER = "owner"
 # Characters Windows refuses in a file name.
 _BAD_FILENAME_CHARS = set('<>:"/\\|?*')
 EMOJIS = ("👍", "❤️", "😂", "😮", "🎉", "👏", "🔥", "🤔")
@@ -65,6 +69,18 @@ class VideoPatch(CamelModel):
     folder_id: str | None = Field(default=None, max_length=64)
     trim_start_ms: int | None = Field(default=None, ge=0)
     trim_end_ms: int | None = Field(default=None, ge=1)
+    show_view_count: bool | None = None
+    downloads_enabled: bool | None = None
+    # null clears it (viewers start at normal speed).
+    recommended_speed: float | None = None
+
+
+class TagsIn(CamelModel):
+    tags: list[str] = Field(max_length=MAX_TAGS)
+
+
+class ViewerIn(CamelModel):
+    viewer_id: str = Field(min_length=8, max_length=64)
 
 
 class FolderIn(CamelModel):
@@ -81,6 +97,7 @@ class CommentIn(CamelModel):
     body: str = Field(min_length=1, max_length=4000)
     timestamp_ms: int | None = Field(default=None, ge=0)
     parent_id: str | None = None
+    reply_video_id: str | None = Field(default=None, max_length=64)
 
 
 class ReactionIn(CamelModel):
@@ -101,7 +118,8 @@ class ViewIn(CamelModel):
 VIDEO_COLUMNS = """
   v.*,
   (select count(*) from views w where w.video_id = v.id and w.counted = 1) as view_count,
-  (select count(*) from comments c where c.video_id = v.id and c.deleted_at is null) as comment_count
+  (select count(*) from comments c where c.video_id = v.id and c.deleted_at is null) as comment_count,
+  (select group_concat(t.tag, char(31)) from video_tags t where t.video_id = v.id) as tags_joined
 """
 
 
@@ -130,7 +148,92 @@ def video_json(row: sqlite3.Row) -> dict[str, Any]:
         "trimStartMs": row["trim_start_ms"],
         "trimEndMs": row["trim_end_ms"],
         "uploaded": bool(row["uploaded"]),
+        "showViewCount": bool(row["show_view_count"]),
+        "downloadsEnabled": bool(row["downloads_enabled"]),
+        "recommendedSpeed": row["recommended_speed"],
+        "tags": sorted((row["tags_joined"] or "").split("\x1f"), key=str.lower) if row["tags_joined"] else [],
     }
+
+
+def clean_tag(raw: str) -> str:
+    """'  #Onboarding ' -> 'Onboarding'. Inner spaces collapse to one."""
+    return " ".join(raw.strip().lstrip("#").split())[:40]
+
+
+def people_on(conn: sqlite3.Connection, video_id: str) -> dict[str, set[str]]:
+    """Everyone who took part on a video, as lower-cased name -> viewer ids, for @mentions."""
+    rows = conn.execute(
+        "select author_id as who, author_name as name from comments where video_id = ? and deleted_at is null"
+        " union select author_id, author_name from reactions where video_id = ?"
+        " union select viewer_id, viewer_name from views where video_id = ? and viewer_name is not null",
+        (video_id, video_id, video_id),
+    )
+    people: dict[str, set[str]] = {}
+    for r in rows:
+        name = (r["name"] or "").strip()
+        if name:
+            people.setdefault(name.lower(), set()).add(r["who"])
+    return people
+
+
+def mentioned_ids(body: str, people: dict[str, set[str]]) -> set[str]:
+    """'@Name' followed by the end, a space or punctuation. Longest names first, so
+    '@Ana Lopez' is not also read as '@Ana'."""
+    text = body.lower()
+    found: set[str] = set()
+    for name in sorted(people, key=len, reverse=True):
+        token = "@" + name
+        start = text.find(token)
+        while start != -1:
+            after = text[start + len(token) : start + len(token) + 1]
+            if not after or not (after.isalnum() or after == "_"):
+                found |= people[name]
+                text = text[:start] + " " * len(token) + text[start + len(token) :]
+                break
+            start = text.find(token, start + 1)
+    return found
+
+
+def notify_for_comment(
+    conn: sqlite3.Connection, video_id: str, comment_id: str, author_id: str, author_name: str, body: str,
+    parent_author: str | None, reply_video_id: str | None,
+) -> None:
+    """Fans a new comment out to the owner, the parent's author, followers and anyone @mentioned.
+    Each person gets one row, the most specific kind; the author never notifies themselves."""
+    owner_ids = {r["viewer_id"] for r in conn.execute("select viewer_id from owner_devices")}
+
+    def recipient(viewer: str) -> str:
+        return OWNER if viewer in owner_ids else viewer
+
+    me = recipient(author_id)
+    kinds: dict[str, str] = {}
+
+    def add(who: str, kind: str) -> None:
+        if who == me:
+            return
+        if who not in kinds or NOTIFY_PRIORITY[kind] > NOTIFY_PRIORITY[kinds[who]]:
+            kinds[who] = kind
+
+    base = "video_reply" if reply_video_id else "comment"
+    add(OWNER, "reply" if parent_author and recipient(parent_author) == OWNER else base)
+    for row in conn.execute("select viewer_id from follows where video_id = ?", (video_id,)):
+        add(recipient(row["viewer_id"]), base)
+    if parent_author:
+        add(recipient(parent_author), "reply")
+    for viewer in mentioned_ids(body, people_on(conn, video_id)):
+        add(recipient(viewer), "mention")
+    stamp = now_iso()
+    preview = " ".join(body.split())[:140]
+    for who, kind in kinds.items():
+        conn.execute(
+            "insert into notifications (id, recipient, kind, video_id, comment_id, actor_name, preview, created_at)"
+            " values (?, ?, ?, ?, ?, ?, ?, ?)",
+            (new_id(), who, kind, video_id, comment_id, author_name, preview, stamp),
+        )
+
+
+def recipients_for(conn: sqlite3.Connection, viewer_id: str) -> list[str]:
+    return [viewer_id, OWNER] if is_owner_device(conn, viewer_id) else [viewer_id]
 
 
 FOLDER_COLUMNS = """
@@ -176,6 +279,7 @@ def comment_json(row: sqlite3.Row) -> dict[str, Any]:
         "deleted": deleted,
         "timestampMs": row["timestamp_ms"],
         "createdAt": row["created_at"],
+        "replyVideoId": row["reply_video_id"],
     }
 
 
@@ -239,6 +343,7 @@ def create_app() -> FastAPI:
         q: Annotated[str | None, Query(max_length=200)] = None,
         archived: bool = False,
         folder: Annotated[str | None, Query(max_length=64, description="A folder id, or 'none'")] = None,
+        tag: Annotated[str | None, Query(max_length=40)] = None,
     ) -> list[dict[str, Any]]:
         sql = f"select {VIDEO_COLUMNS} from videos v where "
         sql += "v.archived_at is not null" if archived else "v.archived_at is null"
@@ -248,10 +353,17 @@ def create_app() -> FastAPI:
         elif folder:
             sql += " and v.folder_id = ?"
             params.append(folder)
+        if tag:
+            sql += " and exists (select 1 from video_tags t where t.video_id = v.id and t.tag = ?)"
+            params.append(clean_tag(tag))
         if q and q.strip():
             escaped = q.strip().replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
-            sql += " and v.title like ? escape '\\'"
-            params.append(f"%{escaped}%")
+            # Titles and tags both match a search.
+            sql += (
+                " and (v.title like ? escape '\\' or exists (select 1 from video_tags t"
+                " where t.video_id = v.id and t.tag like ? escape '\\'))"
+            )
+            params.extend([f"%{escaped}%", f"%{escaped}%"])
         sql += " order by v.created_at desc"
         with connect() as conn:
             return [video_json(r) for r in conn.execute(sql, params)]
@@ -281,6 +393,10 @@ def create_app() -> FastAPI:
                     "select 1 from watch_later where viewer_id = ? and video_id = ?", (viewer_id, video_id)
                 ).fetchone()
                 body["watchLater"] = saved is not None
+                followed = conn.execute(
+                    "select 1 from follows where viewer_id = ? and video_id = ?", (viewer_id, video_id)
+                ).fetchone()
+                body["following"] = followed is not None
             return body
 
     @app.patch("/api/videos/{video_id}")
@@ -302,7 +418,19 @@ def create_app() -> FastAPI:
         if body.reactions_enabled is not None:
             sets.append("reactions_enabled = ?")
             params.append(int(body.reactions_enabled))
+        if body.show_view_count is not None:
+            sets.append("show_view_count = ?")
+            params.append(int(body.show_view_count))
+        if body.downloads_enabled is not None:
+            sets.append("downloads_enabled = ?")
+            params.append(int(body.downloads_enabled))
         given = body.model_fields_set
+        if "recommended_speed" in given:
+            speed = body.recommended_speed
+            if speed is not None and speed not in SPEEDS:
+                raise HTTPException(422, "Pick a speed from 0.5x to 2x")
+            sets.append("recommended_speed = ?")
+            params.append(None if speed in (None, 1.0) else speed)
         with connect() as conn:
             row = load_video(conn, video_id)
             if "folder_id" in given:
@@ -509,7 +637,11 @@ def create_app() -> FastAPI:
         return FileResponse(path, media_type="image/jpeg", headers={"Cache-Control": "no-cache"})
 
     @app.get("/api/videos/{video_id}/media")
-    def get_media(video_id: str, download: bool = False) -> FileResponse:
+    def get_media(
+        video_id: str,
+        download: bool = False,
+        viewer_id: Annotated[str | None, Query(alias="viewerId", max_length=64)] = None,
+    ) -> FileResponse:
         with connect() as conn:
             row = load_video(conn, video_id)
         if row["status"] != "ready":
@@ -518,11 +650,129 @@ def create_app() -> FastAPI:
         if not path.is_file():
             raise HTTPException(404, "Video file is missing")
         media_type = row["mime_type"].split(";")[0] or "video/webm"
+        if download and not row["downloads_enabled"]:
+            with connect() as conn:
+                if not is_owner_device(conn, viewer_id):
+                    raise HTTPException(403, "The owner has not allowed downloads of this video")
         if download:
             # The whole file as recorded or uploaded: a trim only applies to playback here.
             return FileResponse(path, media_type=media_type, filename=download_name(row["title"], media_type))
         # Starlette's FileResponse answers Range requests with 206, which is what makes seeking work.
         return FileResponse(path, media_type=media_type)
+
+    # Tags ---------------------------------------------------------------------------------
+
+    @app.put("/api/videos/{video_id}/tags")
+    def set_tags(video_id: str, body: TagsIn) -> dict[str, Any]:
+        tags: dict[str, str] = {}
+        for raw in body.tags:
+            tag = clean_tag(raw)
+            if tag:
+                tags.setdefault(tag.lower(), tag)
+        with connect() as conn:
+            load_video(conn, video_id)
+            with conn:
+                conn.execute("delete from video_tags where video_id = ?", (video_id,))
+                conn.executemany(
+                    "insert into video_tags (video_id, tag) values (?, ?)", [(video_id, t) for t in tags.values()]
+                )
+            return video_json(load_video(conn, video_id))
+
+    @app.get("/api/tags")
+    def list_tags() -> list[dict[str, Any]]:
+        """Every tag in use on a video that is not archived, with how many videos carry it."""
+        with connect() as conn:
+            rows = conn.execute(
+                "select min(t.tag) as tag, count(*) as n from video_tags t join videos v on v.id = t.video_id"
+                " where v.archived_at is null group by lower(t.tag) order by lower(t.tag)"
+            )
+            return [{"tag": r["tag"], "videoCount": r["n"]} for r in rows]
+
+    # Follow, people, notifications ------------------------------------------------------------
+
+    @app.put("/api/videos/{video_id}/follow", status_code=204)
+    def follow(video_id: str, body: ViewerIn) -> Response:
+        with connect() as conn:
+            load_video(conn, video_id)
+            conn.execute(
+                "insert or ignore into follows (viewer_id, video_id, created_at) values (?, ?, ?)",
+                (body.viewer_id, video_id, now_iso()),
+            )
+        return Response(status_code=204)
+
+    @app.delete("/api/videos/{video_id}/follow", status_code=204)
+    def unfollow(video_id: str, viewer_id: Annotated[str, Query(alias="viewerId", min_length=8, max_length=64)]) -> Response:
+        with connect() as conn:
+            conn.execute("delete from follows where viewer_id = ? and video_id = ?", (viewer_id, video_id))
+        return Response(status_code=204)
+
+    @app.get("/api/videos/{video_id}/people")
+    def list_people(video_id: str) -> list[str]:
+        """Names that can be @mentioned on this video: everyone who commented, reacted or watched."""
+        with connect() as conn:
+            load_video(conn, video_id)
+            people = people_on(conn, video_id)
+            names: dict[str, str] = {}
+            for r in conn.execute(
+                "select author_name as name from comments where video_id = ? and deleted_at is null"
+                " union select author_name from reactions where video_id = ?"
+                " union select viewer_name from views where video_id = ? and viewer_name is not null",
+                (video_id, video_id, video_id),
+            ):
+                name = (r["name"] or "").strip()
+                if name and name.lower() in people:
+                    names.setdefault(name.lower(), name)
+            return sorted(names.values(), key=str.lower)
+
+    @app.get("/api/notifications")
+    def list_notifications(
+        viewer_id: Annotated[str, Query(alias="viewerId", min_length=8, max_length=64)],
+    ) -> list[dict[str, Any]]:
+        with connect() as conn:
+            who = recipients_for(conn, viewer_id)
+            rows = conn.execute(
+                f"select n.*, v.title as video_title, c.timestamp_ms as timestamp_ms from notifications n"
+                f" join videos v on v.id = n.video_id left join comments c on c.id = n.comment_id"
+                f" where n.recipient in ({','.join('?' * len(who))}) order by n.created_at desc, n.id limit 100",
+                who,
+            )
+            return [
+                {
+                    "id": r["id"],
+                    "kind": r["kind"],
+                    "videoId": r["video_id"],
+                    "videoTitle": r["video_title"],
+                    "commentId": r["comment_id"],
+                    "timestampMs": r["timestamp_ms"],
+                    "actorName": r["actor_name"],
+                    "preview": r["preview"],
+                    "createdAt": r["created_at"],
+                    "read": r["read_at"] is not None,
+                }
+                for r in rows
+            ]
+
+    @app.get("/api/notifications/unread")
+    def unread_count(viewer_id: Annotated[str, Query(alias="viewerId", min_length=8, max_length=64)]) -> dict[str, int]:
+        with connect() as conn:
+            who = recipients_for(conn, viewer_id)
+            row = conn.execute(
+                f"select count(*) as n from notifications where read_at is null"
+                f" and recipient in ({','.join('?' * len(who))})",
+                who,
+            ).fetchone()
+            return {"count": row["n"]}
+
+    @app.post("/api/notifications/read", status_code=204)
+    def mark_read(body: ViewerIn) -> Response:
+        with connect() as conn:
+            who = recipients_for(conn, body.viewer_id)
+            conn.execute(
+                f"update notifications set read_at = ? where read_at is null"
+                f" and recipient in ({','.join('?' * len(who))})",
+                [now_iso(), *who],
+            )
+        return Response(status_code=204)
 
     # Folders ------------------------------------------------------------------------------
 
@@ -632,22 +882,41 @@ def create_app() -> FastAPI:
                     raise HTTPException(404, "The comment you replied to is gone")
                 # One level of replies: a reply to a reply joins the same thread.
                 parent_id = parent["parent_id"] or parent["id"]
+            parent_author = None
+            if body.parent_id:
+                parent_author = conn.execute(
+                    "select author_id from comments where id = ?", (body.parent_id,)
+                ).fetchone()["author_id"]
+            if body.reply_video_id:
+                if body.reply_video_id == video_id:
+                    raise HTTPException(422, "A video can't be a reply to itself")
+                load_video(conn, body.reply_video_id)
             comment_id = new_id()
-            conn.execute(
-                "insert into comments (id, video_id, parent_id, author_id, author_name, is_owner,"
-                " body, timestamp_ms, created_at) values (?, ?, ?, ?, ?, ?, ?, ?, ?)",
-                (
-                    comment_id,
-                    video_id,
-                    parent_id,
-                    body.author_id,
-                    name,
-                    int(is_owner_device(conn, body.author_id)),
-                    text,
-                    None if parent_id else body.timestamp_ms,
-                    now_iso(),
-                ),
-            )
+            with conn:
+                conn.execute(
+                    "insert into comments (id, video_id, parent_id, author_id, author_name, is_owner,"
+                    " body, timestamp_ms, created_at, reply_video_id) values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                    (
+                        comment_id,
+                        video_id,
+                        parent_id,
+                        body.author_id,
+                        name,
+                        int(is_owner_device(conn, body.author_id)),
+                        text,
+                        None if parent_id else body.timestamp_ms,
+                        now_iso(),
+                        body.reply_video_id,
+                    ),
+                )
+                # Commenting follows the video, as in Loom, so replies and new comments reach you.
+                conn.execute(
+                    "insert or ignore into follows (viewer_id, video_id, created_at) values (?, ?, ?)",
+                    (body.author_id, video_id, now_iso()),
+                )
+                notify_for_comment(
+                    conn, video_id, comment_id, body.author_id, name, text, parent_author, body.reply_video_id
+                )
             row = conn.execute("select * from comments where id = ?", (comment_id,)).fetchone()
             return comment_json(row)
 

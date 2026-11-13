@@ -42,6 +42,10 @@ create table if not exists videos (
   trim_start_ms integer check (trim_start_ms is null or trim_start_ms >= 0),
   trim_end_ms integer check (trim_end_ms is null or trim_end_ms > 0),
   uploaded integer not null default 0 check (uploaded in (0, 1)),
+  -- Added 2026-11-13 (per-video settings, Loom S14). Defaults keep what viewers saw before.
+  show_view_count integer not null default 0 check (show_view_count in (0, 1)),
+  downloads_enabled integer not null default 0 check (downloads_enabled in (0, 1)),
+  recommended_speed real check (recommended_speed is null or recommended_speed between 0.5 and 2),
   created_at text not null,
   updated_at text not null
 );
@@ -58,7 +62,9 @@ create table if not exists comments (
   body text not null check (length(body) between 1 and 4000),
   timestamp_ms integer check (timestamp_ms is null or timestamp_ms >= 0),
   created_at text not null,
-  deleted_at text
+  deleted_at text,
+  -- A video reply: the comment points at the video recorded in answer. Added 2026-11-13.
+  reply_video_id text references videos (id) on delete set null
 );
 create index if not exists comments_video_idx on comments (video_id, created_at);
 create index if not exists comments_parent_idx on comments (parent_id);
@@ -97,3 +103,33 @@ create table if not exists watch_later (
   created_at text not null,
   primary key (viewer_id, video_id)
 );
+
+-- Tags, case-insensitive per video. Added 2026-11-13.
+create table if not exists video_tags (
+  video_id text not null references videos (id) on delete cascade,
+  tag text not null collate nocase check (length(tag) between 1 and 40),
+  primary key (video_id, tag)
+);
+create index if not exists video_tags_tag_idx on video_tags (tag);
+
+-- Following a video: new comments on it notify the follower. Commenting follows automatically.
+create table if not exists follows (
+  viewer_id text not null,
+  video_id text not null references videos (id) on delete cascade,
+  created_at text not null,
+  primary key (viewer_id, video_id)
+);
+
+-- One row per person to tell. recipient is a viewer id, or 'owner' for every owner device.
+create table if not exists notifications (
+  id text primary key,
+  recipient text not null,
+  kind text not null check (kind in ('comment', 'reply', 'mention', 'video_reply')),
+  video_id text not null references videos (id) on delete cascade,
+  comment_id text references comments (id) on delete cascade,
+  actor_name text not null,
+  preview text not null default '',
+  created_at text not null,
+  read_at text
+);
+create index if not exists notifications_recipient_idx on notifications (recipient, created_at);

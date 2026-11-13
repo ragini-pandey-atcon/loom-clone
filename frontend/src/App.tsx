@@ -1,13 +1,15 @@
 import { Link, NavLink, Outlet, Route, Routes, useLocation } from 'react-router';
 
-import { BrandMark, IconRecord } from './components/Icons';
+import { BrandMark, IconBell, IconRecord } from './components/Icons';
 import { Toasts } from './components/ui';
 import { formatClock } from './lib/format';
 import { useIsOwnerDevice } from './lib/identity';
 import { LibraryPage } from './pages/LibraryPage';
 import { RecordPage } from './pages/RecordPage';
 import { VideoPage } from './pages/VideoPage';
+import { NotificationsPage } from './pages/NotificationsPage';
 import { WatchLaterPage } from './pages/WatchLaterPage';
+import { useUnreadCount } from './lib/unread';
 import { useActiveSession, useSessionState } from './recorder/session';
 
 function Shell() {
@@ -17,6 +19,7 @@ function Shell() {
   const state = useSessionState(session);
   const recording = state && (state.phase === 'recording' || state.phase === 'paused' || state.phase === 'countdown');
   const onRecorder = pathname === '/record';
+  const unread = useUnreadCount();
   // Viewers opening a shared link see the video, not the owner's library.
   const showNav =
     owner || pathname === '/' || pathname === '/archive' || pathname.startsWith('/folders/') || onRecorder;
@@ -43,6 +46,15 @@ function Shell() {
           </nav>
         )}
         <span className="topbar-spacer" />
+        <Link
+          className="icon-btn bell"
+          to="/notifications"
+          aria-label={unread ? `Notifications, ${unread} new` : 'Notifications'}
+          title="Notifications"
+        >
+          <IconBell />
+          {unread > 0 && <span className="bell-count">{unread > 99 ? '99+' : unread}</span>}
+        </Link>
         {recording && !onRecorder && (
           <Link className="btn btn-record" to="/record">
             <span className="rec-dot" style={{ background: 'currentColor' }} aria-hidden="true" />
@@ -84,6 +96,7 @@ export function App() {
         <Route path="archive" element={<LibraryPage archived />} />
         <Route path="folders/:folderId" element={<LibraryPage archived={false} />} />
         <Route path="watch-later" element={<WatchLaterPage />} />
+        <Route path="notifications" element={<NotificationsPage />} />
         <Route path="record" element={<RecordPage />} />
         <Route path="v/:id" element={<VideoPage />} />
         <Route path="*" element={<NotFound />} />

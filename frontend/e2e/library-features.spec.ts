@@ -1,5 +1,7 @@
 import { type Browser, type BrowserContext, expect, type Page, test } from '@playwright/test';
 
+import { uploadFromLibrary } from './helpers';
+
 // Folders, upload, trim, download, duplicate, a link at a timestamp, watch later and the
 // floating recording controls. Everything made here is deleted at the end.
 
@@ -19,52 +21,7 @@ async function ownerContext(browser: Browser): Promise<BrowserContext> {
   });
 }
 
-/** A real 4 second WebM, made in the browser from a canvas (it has no duration in its header,
- * like many recorders' files, so the upload's length probe is exercised too). */
-async function makeWebm(page: Page): Promise<Buffer> {
-  const base64 = await page.evaluate(async () => {
-    const canvas = document.createElement('canvas');
-    canvas.width = 640;
-    canvas.height = 360;
-    const ctx = canvas.getContext('2d')!;
-    const stream = canvas.captureStream(30);
-    const rec = new MediaRecorder(stream, { mimeType: 'video/webm;codecs=vp8' });
-    const parts: Blob[] = [];
-    rec.ondataavailable = (e) => parts.push(e.data);
-    const done = new Promise((r) => (rec.onstop = r));
-    rec.start(250);
-    const t0 = performance.now();
-    await new Promise<void>((resolve) => {
-      const draw = () => {
-        const t = performance.now() - t0;
-        ctx.fillStyle = `hsl(${(t / 20) % 360} 70% 45%)`;
-        ctx.fillRect(0, 0, 640, 360);
-        ctx.fillStyle = '#fff';
-        ctx.font = '64px sans-serif';
-        ctx.fillText((t / 1000).toFixed(1), 240, 200);
-        if (t < 4000) requestAnimationFrame(draw);
-        else resolve();
-      };
-      draw();
-    });
-    rec.stop();
-    await done;
-    const buf = new Uint8Array(await new Blob(parts).arrayBuffer());
-    let s = '';
-    for (let i = 0; i < buf.length; i += 0x8000) s += String.fromCharCode(...buf.subarray(i, i + 0x8000));
-    return btoa(s);
-  });
-  return Buffer.from(base64, 'base64');
-}
-
-async function upload(page: Page, name: string): Promise<string> {
-  const file = await makeWebm(page);
-  await page.getByTestId('upload-input').setInputFiles({ name, mimeType: 'video/webm', buffer: file });
-  await expect(page).toHaveURL(/\/v\/[a-z2-9]{10}$/, { timeout: 30_000 });
-  const id = page.url().split('/v/')[1];
-  createdVideos.add(id);
-  return id;
-}
+const upload = (page: Page, name: string) => uploadFromLibrary(page, name, createdVideos);
 
 async function playerTime(page: Page) {
   return page.locator('.player-time').innerText();

@@ -1,20 +1,18 @@
 import { useEffect, useState } from 'react';
 
 import { api, type Reaction, type Video, type Viewer } from '../api/client';
-import { formatClock, formatWhen, plural } from '../lib/format';
-import { Avatar, toast } from './ui';
+import { formatClock, formatWhen } from '../lib/format';
+import { Avatar } from './ui';
 
-/** Owner-only Activity tab (S15) plus the two per-video switches (S14). */
+/** Owner-only Activity tab (S15). The per-video switches are in the Settings tab (VideoSettings). */
 export function Insights({
   video,
   reactions,
   onSeek,
-  onVideoChanged,
 }: {
   video: Video;
   reactions: Reaction[];
   onSeek: (ms: number) => void;
-  onVideoChanged: (v: Video) => void;
 }) {
   const [viewers, setViewers] = useState<Viewer[] | null>(null);
   const [failed, setFailed] = useState(false);
@@ -35,14 +33,6 @@ export function Insights({
       clearInterval(timer);
     };
   }, [video.id]);
-
-  async function toggle(field: 'commentsEnabled' | 'reactionsEnabled', value: boolean) {
-    try {
-      onVideoChanged(await api.patchVideo(video.id, { [field]: value }));
-    } catch {
-      toast('The setting was not saved', 'error');
-    }
-  }
 
   const counts = new Map<string, number>();
   for (const r of reactions) counts.set(r.emoji, (counts.get(r.emoji) ?? 0) + 1);
@@ -103,26 +93,6 @@ export function Insights({
         </>
       )}
 
-      <h3 className="section-title">Settings</h3>
-      <label className="toggle">
-        <span>Comments</span>
-        <input
-          type="checkbox"
-          role="switch"
-          checked={video.commentsEnabled}
-          onChange={(e) => void toggle('commentsEnabled', e.target.checked)}
-        />
-      </label>
-      <label className="toggle">
-        <span>Emoji reactions</span>
-        <input
-          type="checkbox"
-          role="switch"
-          checked={video.reactionsEnabled}
-          onChange={(e) => void toggle('reactionsEnabled', e.target.checked)}
-        />
-      </label>
-      <p className="muted">{plural(video.commentCount, 'comment')} so far. Turning a switch off keeps what is already there.</p>
     </div>
   );
 }
