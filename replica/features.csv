@@ -21,7 +21,7 @@ Emoji reactions on the timeline,collaboration,must,yes,yes,8 emoji; markers for 
 View count and viewer list (5 s / 75 % / ended rule),insights,must,yes,yes,one view per viewer per video; owner devices excluded server-side
 Library of my videos with search by title,library,must,yes,yes,S03
 Archive and permanently delete with confirmation,library,must,yes,yes,delete is irreversible in Loom too
-Folders and move video to folder,library,should,yes,no,nesting is a guess
+Folders and move video to folder,library,should,yes,yes,"one level deep; deleting a folder moves its videos back to My videos (2026-11-13)"
 Camera bubble: drag anywhere and snap to sides and corners,recording,must,yes,yes,"setup and mid-take; keyboard arrows too; position remembered (2026-11-12)"
 Camera bubble: five sizes on a slider shown on hover,recording,must,yes,yes,also in the side panel and the live camera panel; + and - keys
 Camera bubble: four shapes (circle rounded square landscape portrait),recording,must,yes,yes,changeable mid-take
@@ -32,7 +32,7 @@ Turn the camera off and on mid-take,recording,should,yes,yes,
 Recorder settings carry over to the next recording,settings,should,yes,yes,localStorage in this browser
 Show or hide the recording time,settings,could,yes,yes,
 Countdown on or off,settings,should,yes,yes,
-Floating camera bubble visible over other apps,recording,should,yes,no,Document Picture-in-Picture; Chrome and Edge only
+Floating camera bubble visible over other apps,recording,should,yes,yes,"Document Picture-in-Picture: timer, pause, stop, optional camera; camera starts hidden when the whole screen is shared, since that window is captured too. Chrome and Edge"
 Camera-only mode,recording,should,yes,yes,
 System or tab audio capture,recording,should,yes,yes,mixed with the mic when both are shared
 Browser noise suppression on the mic,recording,should,yes,yes,cheap via getUserMedia constraints
@@ -43,28 +43,28 @@ Per-video settings: comments and reactions on or off,settings,should,yes,yes,S14
 Transcript with click-to-seek and search,transcript,should,yes,no,on all Loom plans; EU-region speech-to-text (hard part 5)
 Closed captions from the transcript,transcript,should,yes,no,
 Search inside transcripts from the library,library,should,yes,no,F09
-Download as MP4,viewing,should,yes,no,per-video toggle
+Download as MP4,viewing,should,yes,partial,"downloads the file as recorded (WebM) or uploaded (MP4/MOV); no MP4 conversion without ffmpeg; owner only"
 Shared with me list,library,skip,yes,skip,"local-only, no accounts: nobody shares to a named person. Was: S17"
 Processing and failed states on the video page,viewing,should,yes,yes,"finishing with progress, failed with retry, unfinished with recover"
-Share at a timestamp,sharing,could,yes,no,start at mm:ss checkbox
+Share at a timestamp,sharing,could,yes,yes,"Copy link at the current time: ?t=seconds"
 Embed code for Confluence and SharePoint,sharing,skip,yes,skip,"local-only, no accounts: nothing outside this machine can reach the player. Was: S20; restricted videos show a message"
 Anyone-with-link public access,sharing,skip,yes,skip,"local-only, no accounts: access levels; the server binds to 127.0.0.1. Was: needs a policy decision for an internal tool"
 Password-protected video,sharing,skip,yes,skip,"local-only, no accounts: access levels"
 Share via email with a message,sharing,skip,yes,skip,"local-only, no accounts: no email"
-Watch later,viewing,could,yes,no,S19
+Watch later,viewing,could,yes,yes,"per browser (viewer id), its own page"
 Theater mode,viewing,could,yes,no,
 Viewer quality selector (adaptive renditions),viewing,could,yes,no,Loom ladder 360p to 2160p
 Recommended playback speed per video,settings,could,yes,no,
 Show view count to viewers toggle,settings,could,yes,no,
 Animated GIF thumbnail,library,could,yes,no,
 Custom thumbnail,library,could,yes,no,Business plan in Loom
-Upload an existing video file,library,could,yes,no,S22
-Duplicate a video,library,could,yes,no,
+Upload an existing video file,library,could,yes,yes,"WebM, MP4, MOV up to 4 GB; length, size and thumbnail read in the browser"
+Duplicate a video,library,could,yes,yes,"copy of the file, dated today; comments and views stay with the original"
 Tags,library,could,yes,no,
 Home feed of recent videos in ATCON,discovery,could,yes,no,only ATCON's own videos
 Follow a video for comment notifications,notifications,could,yes,no,
 Record a video reply,collaboration,could,yes,no,
-Trim a recording,editing,could,yes,no,Business plan in Loom
+Trim a recording,editing,could,yes,yes,"non-destructive playback window with Revert to original, as in Loom; no middle cuts"
 Drawing tool and click highlight while recording,recording,could,yes,skip,a web page cannot draw over other apps; Loom needs its desktop app or extension
 Loom AI (titles summaries chapters tasks filler removal),ai,could,yes,skip,out of the agreed slice; possible later in ATCON's Azure
 Desktop app and Chrome extension,platform,could,yes,skip,out of the agreed slice (web only)

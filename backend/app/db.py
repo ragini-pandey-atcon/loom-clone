@@ -69,6 +69,26 @@ def init_db() -> None:
     with connect() as conn:
         conn.execute("pragma journal_mode = wal")
         conn.executescript(SCHEMA_PATH.read_text(encoding="utf-8"))
+        migrate(conn)
+
+
+# Columns added to `videos` after the first release. `create table if not exists` leaves an
+# existing table alone, so a database made before them gets each one added here, in place.
+_ADDED_VIDEO_COLUMNS = {
+    "folder_id": "folder_id text references folders (id) on delete set null",
+    "trim_start_ms": "trim_start_ms integer check (trim_start_ms is null or trim_start_ms >= 0)",
+    "trim_end_ms": "trim_end_ms integer check (trim_end_ms is null or trim_end_ms > 0)",
+    "uploaded": "uploaded integer not null default 0 check (uploaded in (0, 1))",
+}
+
+
+def migrate(conn: sqlite3.Connection) -> None:
+    have = {row["name"] for row in conn.execute("pragma table_info(videos)")}
+    for name, definition in _ADDED_VIDEO_COLUMNS.items():
+        if name not in have:
+            conn.execute(f"alter table videos add column {definition}")
+    # Here, not in schema.sql: on an old database the column does not exist until the line above.
+    conn.execute("create index if not exists videos_folder_idx on videos (folder_id, created_at)")
 
 
 def is_owner_device(conn: sqlite3.Connection, viewer_id: str | None) -> bool:

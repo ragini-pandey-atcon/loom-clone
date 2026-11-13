@@ -30,6 +30,9 @@ export function Player({
   reactions,
   onWatch,
   onEnded,
+  windowStartMs = 0,
+  windowEndMs = null,
+  initialMs,
 }: {
   ref?: Ref<PlayerHandle>;
   src: string;
@@ -39,6 +42,14 @@ export function Player({
   /** Called with real playback time as it accumulates (for view counting). */
   onWatch?: (deltaMs: number, positionMs: number) => void;
   onEnded?: (positionMs: number) => void;
+  /**
+   * The trim window, in file time. Only this part plays, and the timeline and clock show it
+   * from 0:00. Everything the player hands out (seek, currentMs, comment times) stays file time.
+   */
+  windowStartMs?: number;
+  windowEndMs?: number | null;
+  /** Start here (file time), for links shared at a timestamp. */
+  initialMs?: number;
 }) {
   const root = useRef<HTMLDivElement>(null);
   const video = useRef<HTMLVideoElement>(null);
@@ -61,7 +72,13 @@ export function Player({
   const [floaters, setFloaters] = useState<Floater[]>([]);
   const [error, setError] = useState(false);
 
-  const durationMs = mediaDuration ?? fallbackDurationMs ?? 0;
+  const fileDurationMs = mediaDuration ?? fallbackDurationMs ?? 0;
+  const startMs = Math.max(0, windowStartMs);
+  const endMs = windowEndMs !== null && fileDurationMs > 0 ? Math.min(windowEndMs, fileDurationMs) : windowEndMs ?? fileDurationMs;
+  /** What the viewer sees as the length. */
+  const durationMs = Math.max(0, endMs - startMs);
+  const clampToWindow = useCallback((ms: number) => Math.min(Math.max(ms, startMs), endMs || Infinity), [startMs, endMs]);
+  const initialDone = useRef(false);
 
   const addFloater = useCallback((emoji: string, name: string) => {
     const key = ++floaterKey.current;
@@ -69,14 +86,46 @@ export function Player({
     setTimeout(() => setFloaters((list) => list.filter((f) => f.key !== key)), 2600);
   }, []);
 
-  const seek = useCallback((ms: number, play = false) => {
+  const seek = useCallback(
+    (ms: number, play = false) => {
+      const el = video.current;
+      if (!el) return;
+      el.currentTime = clampToWindow(ms) / 1000;
+      lastTime.current = el.currentTime * 1000;
+      setCurrentMs(el.currentTime * 1000);
+      if (play) void el.play().catch(() => {});
+    },
+    [clampToWindow],
+  );
+
+  // A changed trim (the editor previews it live) moves the playhead inside the new window.
+  useEffect(() => {
     const el = video.current;
-    if (!el) return;
-    el.currentTime = Math.max(0, ms) / 1000;
-    lastTime.current = el.currentTime * 1000;
-    setCurrentMs(el.currentTime * 1000);
-    if (play) void el.play().catch(() => {});
-  }, []);
+    if (!el || el.readyState < 1) return;
+    const now = el.currentTime * 1000;
+    if (now < startMs - 1 || (endMs && now > endMs + 1)) seek(now < startMs ? startMs : endMs);
+  }, [startMs, endMs, seek]);
+
+  // Stop exactly at the end of the trim window: timeupdate fires only every ~250 ms, video
+  // frames fire every frame.
+  useEffect(() => {
+    const el = video.current;
+    if (!el || !playing || !windowEndMs || typeof el.requestVideoFrameCallback !== 'function') return;
+    let handle = 0;
+    const check = () => {
+      if (el.currentTime * 1000 >= endMs) {
+        el.pause();
+        el.currentTime = endMs / 1000;
+        setPlaying(false);
+        setIdle(false);
+        onEnded?.(endMs);
+        return;
+      }
+      handle = el.requestVideoFrameCallback(check);
+    };
+    handle = el.requestVideoFrameCallback(check);
+    return () => el.cancelVideoFrameCallback(handle);
+  }, [playing, windowEndMs, endMs, onEnded]);
 
   useImperativeHandle(
     ref,
@@ -91,9 +140,12 @@ export function Player({
   const toggle = useCallback(() => {
     const el = video.current;
     if (!el) return;
-    if (el.paused || el.ended) void el.play().catch(() => {});
-    else el.pause();
-  }, []);
+    if (el.paused || el.ended) {
+      // At the end of the window, play starts over from the beginning of it.
+      if (el.ended || (endMs && el.currentTime * 1000 >= endMs - 50)) el.currentTime = startMs / 1000;
+      void el.play().catch(() => {});
+    } else el.pause();
+  }, [startMs, endMs]);
 
   const wake = useCallback(() => {
     setIdle(false);
@@ -108,6 +160,12 @@ export function Player({
   function onTimeUpdate() {
     const el = video.current!;
     const now = el.currentTime * 1000;
+    // Fallback for the frame check above (and for browsers without it).
+    if (windowEndMs && now >= endMs && !el.paused) {
+      el.pause();
+      el.currentTime = endMs / 1000;
+      onEnded?.(endMs);
+    }
     const delta = now - lastTime.current;
     // Small forward steps are playback; anything else is a seek and shows no reactions.
     if (delta > 0 && delta < 1500 && !el.paused) {
@@ -126,10 +184,19 @@ export function Player({
     setMediaDuration(d && Number.isFinite(d) ? d * 1000 : null);
   }
 
+  function onMetadata() {
+    readDuration();
+    if (initialDone.current) return;
+    initialDone.current = true;
+    const at = initialMs ?? startMs;
+    if (at > 0) seek(at);
+  }
+
+  /** File time under the pointer. */
   function msAt(clientX: number): number {
     const rect = timeline.current!.getBoundingClientRect();
     const frac = Math.min(1, Math.max(0, (clientX - rect.left) / rect.width));
-    return frac * durationMs;
+    return startMs + frac * durationMs;
   }
 
   function onKey(e: React.KeyboardEvent) {
@@ -174,9 +241,13 @@ export function Player({
     else void root.current?.requestFullscreen().catch(() => {});
   }
 
-  const pct = (ms: number) => `${durationMs > 0 ? Math.min(100, (ms / durationMs) * 100) : 0}%`;
-  const topLevel = comments.filter((c) => !c.parentId && !c.deleted && c.timestampMs !== null);
-  const recentReactions = reactions.slice(-MAX_REACTION_MARKERS);
+  /** Position of a file time on the timeline. */
+  const pct = (ms: number) =>
+    `${durationMs > 0 ? Math.min(100, Math.max(0, ((ms - startMs) / durationMs) * 100)) : 0}%`;
+  const inWindow = (ms: number) => ms >= startMs && (!endMs || ms <= endMs);
+  const shown = (ms: number) => formatClock(Math.max(0, ms - startMs));
+  const topLevel = comments.filter((c) => !c.parentId && !c.deleted && c.timestampMs !== null && inWindow(c.timestampMs));
+  const recentReactions = reactions.filter((r) => inWindow(r.timestampMs)).slice(-MAX_REACTION_MARKERS);
 
   return (
     <div
@@ -210,7 +281,7 @@ export function Player({
           onEnded?.((video.current?.currentTime ?? 0) * 1000);
         }}
         onTimeUpdate={onTimeUpdate}
-        onLoadedMetadata={readDuration}
+        onLoadedMetadata={onMetadata}
         onDurationChange={readDuration}
         onProgress={() => {
           const el = video.current;
@@ -257,8 +328,8 @@ export function Player({
           aria-label="Seek"
           aria-valuemin={0}
           aria-valuemax={Math.round(durationMs / 1000)}
-          aria-valuenow={Math.round(currentMs / 1000)}
-          aria-valuetext={`${formatClock(currentMs)} of ${formatClock(durationMs)}`}
+          aria-valuenow={Math.round(Math.max(0, currentMs - startMs) / 1000)}
+          aria-valuetext={`${shown(currentMs)} of ${formatClock(durationMs)}`}
           onPointerDown={(e) => {
             if ((e.target as HTMLElement).closest('.timeline-marker')) return;
             dragging.current = true;
@@ -286,7 +357,7 @@ export function Player({
               type="button"
               className="timeline-marker is-comment"
               style={{ left: pct(c.timestampMs!) }}
-              aria-label={`Comment by ${c.authorName} at ${formatClock(c.timestampMs)}`}
+              aria-label={`Comment by ${c.authorName} at ${shown(c.timestampMs!)}`}
               title={`${c.authorName}: ${c.body.slice(0, 80)}`}
               onClick={() => seek(c.timestampMs!)}
             />
@@ -297,8 +368,8 @@ export function Player({
               type="button"
               className="timeline-marker"
               style={{ left: pct(r.timestampMs) }}
-              aria-label={`${r.authorName} reacted ${r.emoji} at ${formatClock(r.timestampMs)}`}
-              title={`${r.authorName} at ${formatClock(r.timestampMs)}`}
+              aria-label={`${r.authorName} reacted ${r.emoji} at ${shown(r.timestampMs)}`}
+              title={`${r.authorName} at ${shown(r.timestampMs)}`}
               onClick={() => seek(r.timestampMs)}
             >
               {r.emoji}
@@ -306,7 +377,7 @@ export function Player({
           ))}
           {hoverMs !== null && (
             <span className="timeline-hover" style={{ left: pct(hoverMs) }}>
-              {formatClock(hoverMs)}
+              {shown(hoverMs)}
             </span>
           )}
         </div>
@@ -342,7 +413,7 @@ export function Player({
             style={{ width: 'var(--space-12)', accentColor: 'var(--c-player-fill)' }}
           />
           <span className="player-time">
-            {formatClock(currentMs)} / {formatClock(durationMs)}
+            {shown(currentMs)} / {formatClock(durationMs)}
           </span>
           <span className="player-spacer" />
           <Menu

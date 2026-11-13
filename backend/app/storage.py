@@ -8,7 +8,7 @@ from __future__ import annotations
 
 import os
 import shutil
-from collections.abc import Iterator
+from collections.abc import AsyncIterator, Iterator
 from pathlib import Path
 
 from .db import videos_dir
@@ -115,6 +115,42 @@ def assemble(video_id: str, chunk_count: int, header: bytes, body_offset: int) -
     os.replace(tmp, target)
     shutil.rmtree(chunks_folder(video_id), ignore_errors=True)
     return target.stat().st_size
+
+
+async def write_stream(video_id: str, chunks: AsyncIterator[bytes], limit: int) -> int:
+    """Writes an uploaded file to the media path. Raises ValueError past `limit` bytes; the
+    partial file is removed and nothing appears under the real name."""
+    path = media_path(video_id)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    tmp = path.with_name(path.name + ".upload")
+    size = 0
+    try:
+        with tmp.open("wb") as out:
+            async for chunk in chunks:
+                size += len(chunk)
+                if size > limit:
+                    raise ValueError("File too large")
+                out.write(chunk)
+        os.replace(tmp, path)
+    finally:
+        tmp.unlink(missing_ok=True)
+    return size
+
+
+def read_head(video_id: str, n: int = 16) -> bytes:
+    with media_path(video_id).open("rb") as f:
+        return f.read(n)
+
+
+def copy_video_files(source_id: str, target_id: str) -> None:
+    """Duplicate: the media and thumbnail, never the chunks of an unfinished take."""
+    target = video_folder(target_id)
+    target.mkdir(parents=True, exist_ok=True)
+    for src in (media_path(source_id), thumb_path(source_id)):
+        if src.is_file():
+            tmp = target / (src.name + ".tmp")
+            shutil.copyfile(src, tmp)
+            os.replace(tmp, target / src.name)
 
 
 def raw_size(video_id: str) -> int:

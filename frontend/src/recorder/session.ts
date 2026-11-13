@@ -35,6 +35,8 @@ export interface SessionState {
   progress: UploadProgress | null;
   error: string | null;
   endedByBrowser: boolean;
+  /** Stop was pressed in the floating controls; the recorder page opens the video page. */
+  stoppedOutside: { linkCopied: boolean } | null;
   previewStream: MediaStream | null;
 }
 
@@ -63,6 +65,7 @@ export class RecordingSession {
     progress: null,
     error: null,
     endedByBrowser: false,
+    stoppedOutside: null,
     previewStream: null,
   };
   private listeners = new Set<() => void>();
@@ -130,6 +133,23 @@ export class RecordingSession {
     const out = this.audioContext.createMediaStreamDestination();
     for (const s of sources) this.audioContext.createMediaStreamSource(s).connect(out);
     return out.stream.getAudioTracks()[0];
+  }
+
+  /** The camera stream, for the floating window's own preview. */
+  get cameraStream(): MediaStream | null {
+    return this.streams.camera;
+  }
+
+  /** What was shared: 'monitor' (a whole screen), 'window' or 'browser' (a tab), or null. */
+  get displaySurface(): string | null {
+    const track = this.streams.display?.getVideoTracks()[0];
+    return (track?.getSettings() as { displaySurface?: string } | undefined)?.displaySurface ?? null;
+  }
+
+  /** Stop from the floating controls, which live outside the app's router. */
+  stopOutside(linkCopied: boolean): Promise<void> {
+    this.set({ stoppedOutside: { linkCopied } });
+    return this.stop();
   }
 
   /** A camera was captured for this session (it may be turned off in the recording mid-take). */

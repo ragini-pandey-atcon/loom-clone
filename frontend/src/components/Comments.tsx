@@ -1,11 +1,20 @@
-import { useState } from 'react';
+import { createContext, useContext, useState } from 'react';
 
 import { api, type Comment } from '../api/client';
 import { formatClock, formatWhen } from '../lib/format';
 import { viewerId } from '../lib/identity';
 import { Avatar, ConfirmDialog, toast } from './ui';
 
+/** Trim start (file time): comment times show from the trimmed 0:00, like the player clock. */
+const ClockOffset = createContext(0);
+const useShown = () => {
+  const offset = useContext(ClockOffset);
+  return (ms: number) => formatClock(Math.max(0, ms - offset));
+};
+
 interface Props {
+  /** Trim start, so the times shown match the player. */
+  offsetMs?: number;
   videoId: string;
   comments: Comment[];
   enabled: boolean;
@@ -40,6 +49,7 @@ function Composer({
   const [includeStamp, setIncludeStamp] = useState(true);
   const [sending, setSending] = useState(false);
   const isReply = parentId !== null;
+  const shown = useShown();
 
   async function send() {
     const text = body.trim();
@@ -105,7 +115,7 @@ function Composer({
             onClick={() => setIncludeStamp((v) => !v)}
             title={includeStamp ? 'Comment is pinned to this moment. Click to remove the time.' : 'Pin to this moment'}
           >
-            at {formatClock(stampMs ?? currentMs())}
+            at {shown(stampMs ?? currentMs())}
           </button>
         ) : (
           <span />
@@ -140,6 +150,7 @@ function CommentView({
   onReply?: () => void;
   onDelete: () => void;
 }) {
+  const shown = useShown();
   return (
     <div className={reply ? 'comment is-reply' : 'comment'}>
       <Avatar name={comment.authorName} seed={comment.authorId} />
@@ -149,7 +160,7 @@ function CommentView({
           {comment.isOwner && <span className="owner-tag">Owner</span>}
           {comment.timestampMs !== null && (
             <button type="button" className="stamp" onClick={() => onSeek(comment.timestampMs!)}>
-              {formatClock(comment.timestampMs)}
+              {shown(comment.timestampMs)}
             </button>
           )}
           <span className="muted">{formatWhen(comment.createdAt)}</span>
@@ -178,7 +189,15 @@ function CommentView({
   );
 }
 
-export function Comments({ videoId, comments, enabled, ownerDevice, currentMs, onSeek, requireName, onChanged }: Props) {
+export function Comments(props: Props) {
+  return (
+    <ClockOffset.Provider value={props.offsetMs ?? 0}>
+      <CommentsInner {...props} />
+    </ClockOffset.Provider>
+  );
+}
+
+function CommentsInner({ videoId, comments, enabled, ownerDevice, currentMs, onSeek, requireName, onChanged }: Props) {
   const [replyTo, setReplyTo] = useState<string | null>(null);
   const [deleting, setDeleting] = useState<Comment | null>(null);
   const me = viewerId();

@@ -21,6 +21,32 @@ export interface Video {
   updatedAt: string;
   viewCount: number;
   commentCount: number;
+  folderId: string | null;
+  /** Trim is a playback window over the untouched file; null means not trimmed. */
+  trimStartMs: number | null;
+  trimEndMs: number | null;
+  uploaded: boolean;
+  /** Only when the request named a viewer. */
+  watchLater?: boolean;
+}
+
+export interface Folder {
+  id: string;
+  name: string;
+  videoCount: number;
+  createdAt: string;
+  updatedAt: string;
+}
+
+/** The part of the file that plays: the trim window, or all of it. */
+export function playWindow(v: Pick<Video, 'durationMs' | 'trimStartMs' | 'trimEndMs'>): { startMs: number; endMs: number | null } {
+  return { startMs: v.trimStartMs ?? 0, endMs: v.trimEndMs ?? v.durationMs };
+}
+
+/** Length as watched: trimmed length when trimmed. */
+export function playedDurationMs(v: Pick<Video, 'durationMs' | 'trimStartMs' | 'trimEndMs'>): number | null {
+  const { startMs, endMs } = playWindow(v);
+  return endMs === null ? null : endMs - startMs;
 }
 
 export interface Comment {
@@ -102,21 +128,44 @@ const json = (method: string, body: unknown): RequestInit => ({
 export const api = {
   claimOwnerDevice: (viewerId: string) => request<void>('/owner/devices', json('POST', { viewerId })),
 
-  listVideos: (opts: { q?: string; archived?: boolean } = {}) => {
+  /** folder: a folder id, 'none' for videos in no folder, or leave out for all. */
+  listVideos: (opts: { q?: string; archived?: boolean; folder?: string } = {}) => {
     const params = new URLSearchParams();
     if (opts.q) params.set('q', opts.q);
     if (opts.archived) params.set('archived', '1');
+    if (opts.folder) params.set('folder', opts.folder);
     const qs = params.toString();
     return request<Video[]>(`/videos${qs ? `?${qs}` : ''}`);
   },
   createVideo: (body: { title: string; sourceMode: SourceMode; mimeType: string }) =>
     request<Video>('/videos', json('POST', body)),
-  getVideo: (id: string) => request<Video>(`/videos/${id}`),
+  getVideo: (id: string, viewer?: string) =>
+    request<Video>(`/videos/${id}${viewer ? `?viewerId=${encodeURIComponent(viewer)}` : ''}`),
   patchVideo: (
     id: string,
-    body: Partial<{ title: string; archived: boolean; commentsEnabled: boolean; reactionsEnabled: boolean }>,
+    body: Partial<{
+      title: string;
+      archived: boolean;
+      commentsEnabled: boolean;
+      reactionsEnabled: boolean;
+      folderId: string | null;
+      trimStartMs: number | null;
+      trimEndMs: number | null;
+    }>,
   ) => request<Video>(`/videos/${id}`, json('PATCH', body)),
   deleteVideo: (id: string) => request<void>(`/videos/${id}`, { method: 'DELETE' }),
+  duplicateVideo: (id: string) => request<Video>(`/videos/${id}/duplicate`, { method: 'POST' }),
+
+  listFolders: () => request<Folder[]>('/folders'),
+  getFolder: (id: string) => request<Folder>(`/folders/${id}`),
+  createFolder: (name: string) => request<Folder>('/folders', json('POST', { name })),
+  renameFolder: (id: string, name: string) => request<Folder>(`/folders/${id}`, json('PATCH', { name })),
+  deleteFolder: (id: string) => request<void>(`/folders/${id}`, { method: 'DELETE' }),
+
+  listWatchLater: (viewer: string) => request<Video[]>(`/watch-later?viewerId=${encodeURIComponent(viewer)}`),
+  addWatchLater: (id: string, viewer: string) => request<void>(`/watch-later/${id}`, json('PUT', { viewerId: viewer })),
+  removeWatchLater: (id: string, viewer: string) =>
+    request<void>(`/watch-later/${id}?viewerId=${encodeURIComponent(viewer)}`, { method: 'DELETE' }),
 
   putChunk: (id: string, seq: number, data: Blob) =>
     request<{ seq: number; bytes: number }>(`/videos/${id}/chunks/${seq}`, {
@@ -172,5 +221,55 @@ export const api = {
 };
 
 export const mediaUrl = (id: string) => `/api/videos/${id}/media`;
+export const downloadUrl = (id: string) => `/api/videos/${id}/media?download=1`;
+
+/** Starts a download of the whole file (a trim only applies to playback here). */
+export function downloadVideo(id: string) {
+  const a = document.createElement('a');
+  a.href = downloadUrl(id);
+  a.download = '';
+  document.body.append(a);
+  a.click();
+  a.remove();
+}
+
+/** A share link that starts playing at `ms` (Loom: "Start at mm:ss"). */
+export const shareUrlAt = (id: string, ms: number) => `${shareUrl(id)}?t=${Math.floor(ms / 1000)}`;
+
+export interface UploadInfo {
+  title: string;
+  mimeType: string;
+  durationMs?: number;
+  width?: number;
+  height?: number;
+  folderId?: string;
+}
+
+/** XHR rather than fetch: fetch cannot report upload progress. */
+export function uploadVideo(file: Blob, info: UploadInfo, onProgress: (fraction: number) => void): Promise<Video> {
+  const params = new URLSearchParams();
+  for (const [k, v] of Object.entries(info)) if (v !== undefined && v !== null) params.set(k, String(typeof v === 'number' ? Math.round(v) : v));
+  return new Promise((resolve, reject) => {
+    const xhr = new XMLHttpRequest();
+    xhr.open('POST', `/api/videos/upload?${params}`);
+    xhr.setRequestHeader('Content-Type', 'application/octet-stream');
+    xhr.upload.onprogress = (e) => e.lengthComputable && onProgress(e.loaded / e.total);
+    xhr.onload = () => {
+      let body: { detail?: unknown } | null = null;
+      try {
+        body = JSON.parse(xhr.responseText);
+      } catch {
+        /* not JSON */
+      }
+      if (xhr.status >= 200 && xhr.status < 300) resolve(body as unknown as Video);
+      else {
+        const detail = body?.detail;
+        reject(new ApiError(xhr.status, typeof detail === 'string' ? detail : `Upload failed (${xhr.status})`, detail));
+      }
+    };
+    xhr.onerror = () => reject(new TypeError('The local server is not answering'));
+    xhr.send(file);
+  });
+}
 export const thumbnailUrl = (v: Pick<Video, 'id' | 'updatedAt'>) => `/api/videos/${v.id}/thumbnail?v=${encodeURIComponent(v.updatedAt)}`;
 export const shareUrl = (id: string) => `${window.location.origin}/v/${id}`;

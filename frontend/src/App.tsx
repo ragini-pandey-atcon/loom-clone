@@ -7,6 +7,7 @@ import { useIsOwnerDevice } from './lib/identity';
 import { LibraryPage } from './pages/LibraryPage';
 import { RecordPage } from './pages/RecordPage';
 import { VideoPage } from './pages/VideoPage';
+import { WatchLaterPage } from './pages/WatchLaterPage';
 import { useActiveSession, useSessionState } from './recorder/session';
 
 function Shell() {
@@ -17,7 +18,8 @@ function Shell() {
   const recording = state && (state.phase === 'recording' || state.phase === 'paused' || state.phase === 'countdown');
   const onRecorder = pathname === '/record';
   // Viewers opening a shared link see the video, not the owner's library.
-  const showNav = owner || pathname === '/' || pathname === '/archive' || onRecorder;
+  const showNav =
+    owner || pathname === '/' || pathname === '/archive' || pathname.startsWith('/folders/') || onRecorder;
 
   return (
     <>
@@ -31,7 +33,13 @@ function Shell() {
             <NavLink to="/" end>
               Library
             </NavLink>
+            <NavLink to="/watch-later">Watch later</NavLink>
             <NavLink to="/archive">Archive</NavLink>
+          </nav>
+        )}
+        {!showNav && pathname !== '/watch-later' && (
+          <nav className="topnav" aria-label="Your list">
+            <NavLink to="/watch-later">Watch later</NavLink>
           </nav>
         )}
         <span className="topbar-spacer" />
@@ -74,6 +82,8 @@ export function App() {
       <Route element={<Shell />}>
         <Route index element={<LibraryPage archived={false} />} />
         <Route path="archive" element={<LibraryPage archived />} />
+        <Route path="folders/:folderId" element={<LibraryPage archived={false} />} />
+        <Route path="watch-later" element={<WatchLaterPage />} />
         <Route path="record" element={<RecordPage />} />
         <Route path="v/:id" element={<VideoPage />} />
         <Route path="*" element={<NotFound />} />

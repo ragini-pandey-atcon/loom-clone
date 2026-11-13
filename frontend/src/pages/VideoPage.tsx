@@ -5,15 +5,35 @@ import {
   api,
   ApiError,
   type Comment,
+  downloadVideo,
   EMOJIS,
+  type Folder,
   isOffline,
   mediaUrl,
+  playedDurationMs,
+  playWindow,
   type Reaction,
   shareUrl,
+  shareUrlAt,
   type Video,
 } from '../api/client';
 import { Comments } from '../components/Comments';
-import { IconArchive, IconLink, IconMore, IconRestore, IconTrash, IconWrench } from '../components/Icons';
+import {
+  IconArchive,
+  IconCheck,
+  IconClock,
+  IconCopy,
+  IconDownload,
+  IconLink,
+  IconMore,
+  IconMove,
+  IconRestore,
+  IconScissors,
+  IconTrash,
+  IconWrench,
+} from '../components/Icons';
+import { MoveDialog } from '../components/LibraryDialogs';
+import { TrimEditor, type TrimRange } from '../components/TrimEditor';
 import { Insights } from '../components/Insights';
 import { NamePrompt } from '../components/NamePrompt';
 import { Player, type PlayerHandle } from '../components/Player';
@@ -41,12 +61,20 @@ export function VideoPage() {
   const [tab, setTab] = useState<'comments' | 'activity'>('comments');
   const [linkPending, setLinkPending] = useState(params.get('copy') === '1');
   const [nameOpen, setNameOpen] = useState(false);
+  const [trimDraft, setTrimDraft] = useState<TrimRange | null>(null);
+  const [trimBusy, setTrimBusy] = useState(false);
+  const [moveFolders, setMoveFolders] = useState<Folder[] | null>(null);
+  // ?t=83 (seconds, file time): a link shared at a timestamp starts there.
+  const [initialMs] = useState(() => {
+    const t = Number(params.get('t'));
+    return Number.isFinite(t) && t > 0 ? t * 1000 : undefined;
+  });
   const nameResolver = useRef<((name: string | null) => void) | null>(null);
   const player = useRef<PlayerHandle>(null);
 
   const loadVideo = useCallback(async () => {
     try {
-      const v = await api.getVideo(id);
+      const v = await api.getVideo(id, viewerId());
       setVideo(v);
       setLoadError(null);
       return v;
@@ -151,6 +179,38 @@ export function VideoPage() {
     });
   }, []);
 
+  async function toggleWatchLater() {
+    if (!video) return;
+    const saved = !!video.watchLater;
+    setVideo({ ...video, watchLater: !saved });
+    try {
+      if (saved) await api.removeWatchLater(video.id, viewerId());
+      else await api.addWatchLater(video.id, viewerId());
+      toast(saved ? 'Removed from Watch later' : 'Saved to Watch later');
+    } catch {
+      setVideo({ ...video, watchLater: saved });
+      toast('That did not save', 'error');
+    }
+  }
+
+  async function saveTrim(range: TrimRange | null) {
+    if (!video) return;
+    setTrimBusy(true);
+    try {
+      const updated = await api.patchVideo(video.id, {
+        trimStartMs: range ? range.startMs : null,
+        trimEndMs: range ? range.endMs : null,
+      });
+      setVideo({ ...updated, watchLater: video.watchLater });
+      setTrimDraft(null);
+      toast(range && updated.trimStartMs !== null ? 'Trim saved' : 'Back to the original');
+    } catch (e) {
+      toast(e instanceof Error ? e.message : 'The trim was not saved', 'error');
+    } finally {
+      setTrimBusy(false);
+    }
+  }
+
   async function react(emoji: string) {
     if (!video) return;
     const name = await requireName();
@@ -226,6 +286,9 @@ export function VideoPage() {
               ref={player}
               src={mediaUrl(video.id)}
               fallbackDurationMs={video.durationMs}
+              windowStartMs={(trimDraft ?? playWindow(video)).startMs}
+              windowEndMs={trimDraft ? trimDraft.endMs : video.trimEndMs}
+              initialMs={initialMs}
               comments={comments}
               reactions={video.reactionsEnabled ? reactions : []}
               onWatch={(delta, pos) => {
@@ -241,20 +304,61 @@ export function VideoPage() {
             <NotReady video={video} owner={owner} ownSession={ownSession} onRecovered={setVideo} onRetry={() => void session?.finish()} />
           )}
 
-          {video && <TitleRow video={video} owner={owner} onChanged={setVideo} onDeleted={() => navigate('/')} />}
+          {video && trimDraft && video.durationMs && (
+            <TrimEditor
+              durationMs={video.durationMs}
+              value={trimDraft}
+              trimmed={video.trimStartMs !== null}
+              busy={trimBusy}
+              onChange={setTrimDraft}
+              onSeek={(ms) => player.current?.seek(ms)}
+              onSave={() => void saveTrim(trimDraft)}
+              onCancel={() => setTrimDraft(null)}
+              onRevert={() => void saveTrim(null)}
+            />
+          )}
 
-          {video?.status === 'ready' &&
-            (video.reactionsEnabled ? (
-              <div className="reaction-bar" role="group" aria-label="React at this moment">
-                {EMOJIS.map((e) => (
-                  <button key={e} type="button" onClick={() => void react(e)} aria-label={`React ${e}`}>
-                    {e}
-                  </button>
-                ))}
-              </div>
-            ) : (
-              <p className="muted">Reactions are turned off for this video.</p>
-            ))}
+          {video && (
+            <TitleRow
+              video={video}
+              owner={owner}
+              onChanged={(v) => setVideo({ ...v, watchLater: video.watchLater })}
+              onDeleted={() => navigate('/')}
+              currentMs={() => player.current?.currentMs() ?? 0}
+              onTrim={() => {
+                const w = playWindow(video);
+                setTrimDraft({ startMs: w.startMs, endMs: w.endMs ?? video.durationMs ?? 0 });
+              }}
+              onMove={async () => {
+                try {
+                  setMoveFolders(await api.listFolders());
+                } catch {
+                  toast('Folders could not be loaded', 'error');
+                }
+              }}
+              onDuplicated={(copy) => navigate(`/v/${copy.id}`)}
+            />
+          )}
+
+          {video?.status === 'ready' && (
+            <div className="under-player">
+              {video.reactionsEnabled ? (
+                <div className="reaction-bar" role="group" aria-label="React at this moment">
+                  {EMOJIS.map((e) => (
+                    <button key={e} type="button" onClick={() => void react(e)} aria-label={`React ${e}`}>
+                      {e}
+                    </button>
+                  ))}
+                </div>
+              ) : (
+                <p className="muted">Reactions are turned off for this video.</p>
+              )}
+              <button type="button" className="btn" aria-pressed={!!video.watchLater} onClick={() => void toggleWatchLater()}>
+                {video.watchLater ? <IconCheck /> : <IconClock />}
+                {video.watchLater ? 'Saved for later' : 'Watch later'}
+              </button>
+            </div>
+          )}
         </div>
 
         <aside className="side" aria-label="Comments and activity">
@@ -274,6 +378,7 @@ export function VideoPage() {
             ) : video?.status === 'ready' ? (
               <Comments
                 videoId={id}
+                offsetMs={(trimDraft ?? playWindow(video)).startMs}
                 comments={comments}
                 enabled={video.commentsEnabled}
                 ownerDevice={owner}
@@ -288,6 +393,19 @@ export function VideoPage() {
           </div>
         </aside>
       </div>
+
+      {video && (
+        <MoveDialog
+          video={moveFolders ? video : null}
+          folders={moveFolders ?? []}
+          onClose={() => setMoveFolders(null)}
+          onMoved={(v, name) => {
+            setMoveFolders(null);
+            setVideo({ ...v, watchLater: video.watchLater });
+            toast(name ? `Moved to ${name}` : 'Moved to My videos');
+          }}
+        />
+      )}
 
       <NamePrompt
         open={nameOpen}
@@ -407,11 +525,19 @@ function TitleRow({
   owner,
   onChanged,
   onDeleted,
+  currentMs,
+  onTrim,
+  onMove,
+  onDuplicated,
 }: {
   video: Video;
   owner: boolean;
   onChanged: (v: Video) => void;
   onDeleted: () => void;
+  currentMs: () => number;
+  onTrim: () => void;
+  onMove: () => void;
+  onDuplicated: (copy: Video) => void;
 }) {
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState(video.title);
@@ -437,6 +563,25 @@ function TitleRow({
     const ok = await copyText(shareUrl(video.id));
     toast(ok ? 'Link copied' : 'Copy failed', ok ? 'success' : 'error');
   }
+
+  async function copyLinkAtTime() {
+    const at = currentMs();
+    const shownAt = formatClock(Math.max(0, at - playWindow(video).startMs));
+    const ok = await copyText(shareUrlAt(video.id, at));
+    toast(ok ? `Link copied: starts at ${shownAt}` : 'Copy failed', ok ? 'success' : 'error');
+  }
+
+  async function duplicate() {
+    try {
+      const copy = await api.duplicateVideo(video.id);
+      toast('Duplicated. This is the copy.');
+      onDuplicated(copy);
+    } catch (e) {
+      toast(e instanceof Error ? e.message : 'The video was not duplicated', 'error');
+    }
+  }
+
+  const ready = video.status === 'ready';
 
   return (
     <div>
@@ -479,11 +624,27 @@ function TitleRow({
           <IconLink />
           Copy link
         </button>
+        {ready && (
+          <Menu
+            label="Share options"
+            triggerClassName="btn"
+            trigger={<IconClock />}
+            items={[{ label: 'Copy link at the current time', icon: <IconClock />, onSelect: () => void copyLinkAtTime() }]}
+          />
+        )}
         {owner && (
           <Menu
             label="More actions"
             trigger={<IconMore />}
             items={[
+              ...(ready
+                ? [
+                    { label: video.trimStartMs !== null ? 'Edit trim' : 'Trim', icon: <IconScissors />, onSelect: onTrim },
+                    { label: 'Move to folder', icon: <IconMove />, onSelect: onMove },
+                    { label: 'Duplicate', icon: <IconCopy />, onSelect: () => void duplicate() },
+                    { label: 'Download', icon: <IconDownload />, onSelect: () => downloadVideo(video.id) },
+                  ]
+                : []),
               video.archivedAt
                 ? {
                     label: 'Restore',
@@ -505,7 +666,9 @@ function TitleRow({
       </div>
       <div className="meta-row">
         <span>{formatWhen(video.createdAt)}</span>
-        {video.durationMs !== null && <span>{formatClock(video.durationMs)}</span>}
+        {playedDurationMs(video) !== null && <span>{formatClock(playedDurationMs(video))}</span>}
+        {owner && video.trimStartMs !== null && <span>Trimmed from {formatClock(video.durationMs)}</span>}
+        {owner && video.uploaded && <span>Uploaded</span>}
         {owner && <span>{plural(video.viewCount, 'view')}</span>}
         {owner && video.status === 'ready' && <span>{formatBytes(video.sizeBytes)}</span>}
         {owner && video.status === 'ready' && !video.seekable && <span>Seeking may be slow: the file could not be indexed.</span>}

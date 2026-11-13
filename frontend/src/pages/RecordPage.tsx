@@ -15,6 +15,8 @@ import {
   IconTrash,
 } from '../components/Icons';
 import { BubbleLayer, CameraControls, CameraFill, useLiveBubble } from '../components/CameraBubble';
+import { closeFloating, floatingSupported, openFloating, useFloatingWindow } from '../components/FloatingControls';
+import { IconPopOut } from '../components/Icons';
 import { LiveVideo } from '../components/LiveVideo';
 import { ConfirmDialog, copyText, toast } from '../components/ui';
 import { formatClock } from '../lib/format';
@@ -298,6 +300,9 @@ function Setup() {
     );
     if (mode === 'screen') cameraStream?.getTracks().forEach((t) => t.stop());
     setActiveSession(session);
+    // Floating controls over other apps. Opening needs the click's user activation; when the
+    // share picker took too long the browser refuses, and the recorder offers a button instead.
+    if (mode !== 'camera') void openFloating(session);
     try {
       await session.prepare();
       if (await session.countdown()) await session.beginTake();
@@ -509,12 +514,18 @@ function Recording({ session }: { session: RecordingSession }) {
     return () => window.removeEventListener('beforeunload', onLeave);
   }, [live]);
 
-  // The browser's own "Stop sharing" bar ended the take: open the video page.
+  // The take ended outside this page (the browser's Stop sharing bar, or Stop in the floating
+  // controls): open the video page, offering Copy link when the link is not on the clipboard yet.
+  const outside = state.endedByBrowser || state.stoppedOutside !== null;
+  const copiedOutside = state.stoppedOutside?.linkCopied ?? false;
   useEffect(() => {
-    if (state.endedByBrowser && state.videoId && (state.phase === 'finishing' || state.phase === 'done')) {
-      navigate(`/v/${state.videoId}?copy=1`);
+    if (outside && state.videoId && (state.phase === 'finishing' || state.phase === 'done')) {
+      if (copiedOutside) toast('Link copied');
+      navigate(`/v/${state.videoId}${copiedOutside ? '' : '?copy=1'}`);
     }
-  }, [state.endedByBrowser, state.phase, state.videoId, navigate]);
+  }, [outside, copiedOutside, state.phase, state.videoId, navigate]);
+
+  const floating = useFloatingWindow();
 
   useEffect(() => {
     if (state.phase === 'discarded') {
@@ -627,6 +638,17 @@ function Recording({ session }: { session: RecordingSession }) {
           Delete
         </button>
         <span className="topbar-spacer" />
+        {floatingSupported() && (
+          <button
+            type="button"
+            className="btn"
+            onClick={() => (floating ? closeFloating() : void openFloating(session))}
+            title="Controls in a small window that stays on top of other apps"
+          >
+            <IconPopOut />
+            {floating ? 'Close floating controls' : 'Pop out controls'}
+          </button>
+        )}
         <button type="button" className="btn btn-record btn-lg" onClick={stop} disabled={!live}>
           <IconStop />
           Stop and share

@@ -78,3 +78,31 @@ Recorded frames were checked by eye: a change made mid-take shows in the file.
 Not verified here: 1440p and 4K output, because the fake screen in headless Chromium is 1080p.
 
 Next: floating bubble and controls over other apps (Document Picture-in-Picture).
+
+## 2026-11-13: library and sharing batch
+
+Built from the public help pages (manage videos, trim, revert a trim):
+
+- **Floating controls**: Document Picture-in-Picture window with timer, Pause/Resume, Stop and an
+  optional camera view, above every other app. Opens on Start when the browser still allows it,
+  otherwise from Pop out controls. Its own React root (events in the PiP document never reach the
+  app's root), fed by the same session store. The camera starts hidden when the whole screen is
+  shared, because that window is captured too.
+- **Folders**: one level, a Folders row above My videos, a folder page, Move to folder (with a new
+  folder made in the dialog), rename, delete (videos go back to My videos). Search at the top level
+  looks in every folder and labels each result with its folder.
+- **Upload** WebM/MP4/MOV up to 4 GB, streamed to disk; the browser reads length, size and the
+  thumbnail, which also proves the file is playable here.
+- **Download** (the file as recorded or uploaded), **Duplicate** (file copied, activity not).
+- **Trim**: non-destructive, as in Loom. A playback window over the untouched file, with Revert to
+  original; the player starts at the trim start, stops at the trim end (frame callback), and shows
+  the clock, timeline, markers and comment times from the trimmed 0:00.
+- **Link at the current time** (`?t=seconds`) and **Watch later** per browser, with its own page.
+- Database: `folders` and `watch_later` tables, four new `videos` columns added in place by
+  `db.migrate()` on start (tested from a pre-folder database; the real one migrated cleanly).
+
+Verified: 22 backend tests, 31 unit tests, typecheck, 11 e2e tests (3 new: upload, trim and
+revert with the player stopping at the trim end, download name, duplicate, timestamp link, watch
+later; folders end to end; floating controls pausing and stopping from their own window). A real
+layout bug was caught there (the Watch later title link covered its Remove button).
+Not done: MP4 conversion for downloads (no ffmpeg), middle cuts in trim.

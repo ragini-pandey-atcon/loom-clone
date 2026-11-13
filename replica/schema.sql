@@ -10,6 +10,14 @@ create table if not exists owner_devices (
   created_at text not null
 );
 
+-- Folders are one level deep. Deleting a folder moves its videos back to the library.
+create table if not exists folders (
+  id text primary key,
+  name text not null check (length(name) between 1 and 100),
+  created_at text not null,
+  updated_at text not null
+);
+
 create table if not exists videos (
   id text primary key,
   title text not null check (length(title) between 1 and 200),
@@ -28,6 +36,12 @@ create table if not exists videos (
   comments_enabled integer not null default 1 check (comments_enabled in (0, 1)),
   reactions_enabled integer not null default 1 check (reactions_enabled in (0, 1)),
   archived_at text,
+  -- Added 2026-11-13. Existing databases get these three through db.migrate().
+  folder_id text references folders (id) on delete set null,
+  -- Trim is a playback window over the untouched file, so "Revert to original" always works.
+  trim_start_ms integer check (trim_start_ms is null or trim_start_ms >= 0),
+  trim_end_ms integer check (trim_end_ms is null or trim_end_ms > 0),
+  uploaded integer not null default 0 check (uploaded in (0, 1)),
   created_at text not null,
   updated_at text not null
 );
@@ -75,3 +89,11 @@ create table if not exists views (
   primary key (video_id, viewer_id)
 );
 create index if not exists views_counted_idx on views (video_id, counted);
+
+-- Watch later is per viewer (the random id kept in each browser), like Loom's per-account list.
+create table if not exists watch_later (
+  viewer_id text not null,
+  video_id text not null references videos (id) on delete cascade,
+  created_at text not null,
+  primary key (viewer_id, video_id)
+);
